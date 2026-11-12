@@ -20,6 +20,20 @@ Supported actions:
 5. "DISAMBIGUATION_RESPONSE": User specifying which customer.
 6. "UNKNOWN": Greetings, random speech.
 
+Itemized Kirana Bill Totaling Rule:
+- When a shopkeeper lists multiple items bought on credit, calculate the sum and combine item names into `notes`:
+  Example: "पूजा ने 200 रुपये का मैदा खरीदा, 50 रुपये की Maggi खरीदी। उधार में डाल दो, तो total को calculate करके।"
+  Extract:
+  [
+    {
+      "action": "ADD_CREDIT",
+      "customer": "Pooja",
+      "amount": 250,
+      "date": "today",
+      "notes": "200 Maida + 50 Maggi"
+    }
+  ]
+
 Multi-Action extraction:
 "Ramesh ka 350 udhaar, kal 200 diya tha" OR "रमेश का 350 उधार, कल 200 दिया था":
 [
@@ -147,24 +161,39 @@ class IntentEngine:
         if self.client:
             try:
                 context_str = f"\nCurrent State/Context: {json.dumps(context)}" if context else ""
-                completion = await self.client.chat.completions.create(
-                    model="llama-3.1-70b-versatile",
-                    messages=[
-                        {"role": "system", "content": SYSTEM_PROMPT},
-                        {"role": "user", "content": f"{context_str}\nTranscript: \"{cleaned}\""}
-                    ],
-                    response_format={"type": "json_object"},
-                    temperature=0.0,
-                    max_tokens=600
-                )
-                raw_json = completion.choices[0].message.content
-                data = json.loads(raw_json)
-                actions = [ActionItem(**item) for item in data.get("actions", [])]
-                return IntentResponse(
-                    actions=actions,
-                    confidence=data.get("confidence", 0.95),
-                    spoken_summary=data.get("spoken_summary")
-                )
+                # Try fast Groq models in order
+                models_to_try = [
+                    "qwen/qwen3.8-27b",
+                    "openai/gpt-oss-120b",
+                    "llama-3.1-70b-versatile",
+                    "llama3-70b-8192"
+                ]
+                raw_json = None
+                for m in models_to_try:
+                    try:
+                        completion = await self.client.chat.completions.create(
+                            model=m,
+                            messages=[
+                                {"role": "system", "content": SYSTEM_PROMPT},
+                                {"role": "user", "content": f"{context_str}\nTranscript: \"{cleaned}\""}
+                            ],
+                            response_format={"type": "json_object"},
+                            temperature=0.0,
+                            max_tokens=600
+                        )
+                        raw_json = completion.choices[0].message.content
+                        break
+                    except Exception:
+                        continue
+                
+                if raw_json:
+                    data = json.loads(raw_json)
+                    actions = [ActionItem(**item) for item in data.get("actions", [])]
+                    return IntentResponse(
+                        actions=actions,
+                        confidence=data.get("confidence", 0.95),
+                        spoken_summary=data.get("spoken_summary")
+                    )
             except Exception as e:
                 logger.warning(f"Groq API call error: {e}, using Indic heuristic parser")
 

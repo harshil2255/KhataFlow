@@ -296,12 +296,12 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
 
             <button
               onClick={() =>
-                onSimulateSpeech("रमेश का 350 उधार, कल 200 दिया था")
+                onSimulateSpeech("पूजा ने 200 रुपये का मैदा खरीदा, 50 रुपये की Maggi खरीदी। उधार में डाल दो, तो total को calculate करके।")
               }
               className="p-2.5 text-left rounded-lg bg-slate-800/80 hover:bg-slate-700/80 border border-slate-700 text-slate-200 transition"
             >
-              <span className="text-[10px] text-emerald-400 font-bold block">2. Multi-Action (Hindi Devanagari)</span>
-              &ldquo;रमेश का 350 उधार, कल 200 दिया था&rdquo;
+              <span className="text-[10px] text-emerald-400 font-bold block">2. Itemized Kirana Bill Totaling (₹250)</span>
+              &ldquo;पूजा ने 200 मैदा, 50 Maggi... total calculate करके उधार&rdquo;
             </button>
 
             <button

@@ -211,12 +211,12 @@ class GnaniSTTClient:
     def __init__(
         self,
         api_key: Optional[str] = None,
-        language_code: str = "hi-IN,en-IN",
+        language_code: str = "hi-IN",
         sample_rate: int = 16000,
         ws_url: str = "wss://api.vachana.ai/stt/v3/stream",
     ):
         self.api_key = api_key or os.environ.get("GNANI_API_KEY", "")
-        self.language_code = language_code
+        self.language_code = os.environ.get("GNANI_LANGUAGE_CODE", language_code)
         self.sample_rate = sample_rate
         self.ws_url = os.environ.get("GNANI_STT_WS_URL", ws_url)
         self.ws: Optional[Any] = None
