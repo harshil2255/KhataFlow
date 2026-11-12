@@ -117,7 +117,24 @@ class LedgerManager:
                 created = await cur.fetchone()
                 return dict(created), True
 
-    async def get_customer_transactions(self, customer_id: int, limit: int = 25) -> List[Dict[str, Any]]:
+    async def update_customer_name(self, old_name: str, new_name: str) -> Tuple[Optional[Dict[str, Any]], str]:
+        """Update or rename an existing customer."""
+        cleaned_old = old_name.strip()
+        cleaned_new = new_name.strip()
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute("SELECT * FROM customers WHERE LOWER(name) LIKE LOWER(?)", (f"%{cleaned_old}%",)) as cur:
+                rows = await cur.fetchall()
+                if not rows:
+                    return None, f"'{cleaned_old}' naam ka grahak nahi mila."
+                if len(rows) > 1:
+                    return None, f"Ek se zyada grahak mile. Kripya poora naam batayein."
+                
+                cust = dict(rows[0])
+                await db.execute("UPDATE customers SET name = ? WHERE id = ?", (cleaned_new, cust["id"]))
+                await db.commit()
+                cust["name"] = cleaned_new
+                return cust, f"Grahak ka naam badal kar '{cleaned_new}' kar diya gaya hai."
         """Returns recent transactions for a specific customer."""
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row

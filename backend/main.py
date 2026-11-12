@@ -153,6 +153,20 @@ async def process_action_item(action: ActionItem) -> tuple[str, str, bool]:
             return msg or "Koi purana record nahi mila jise sudhara ja sake.", "ERROR", False
         return "Naya amount samajh nahi aaya.", "ERROR", False
 
+    # 1b. Create Customer directly via voice command ("naya grahak banao Mukesh Patel")
+    if act == "CREATE_CUSTOMER":
+        cust_name = action.customer or "Naya Grahak"
+        cust, is_new = await ledger_manager.get_or_create_customer(cust_name, action.phone)
+        spoken = f"Naya grahak '{cust['name']}' ka khata safalta-purvak bana diya gaya hai."
+        return spoken, "CUSTOMER_CREATED", True
+
+    # 1c. Update Customer name via voice command ("Ramesh ka naam badal kar Ramesh Gupta kar do")
+    if act == "UPDATE_CUSTOMER":
+        old_name = action.customer or ""
+        new_name = action.notes or ""
+        cust, msg = await ledger_manager.update_customer_name(old_name, new_name)
+        return msg, "CUSTOMER_UPDATED", False
+
     # 2. Query balance
     if act == "QUERY_BALANCE":
         bal, spoken = await ledger_manager.query_balance(

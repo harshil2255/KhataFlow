@@ -542,19 +542,19 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           {[
             {
+              label: "New Customer: 'Mukesh Patel banao'",
+              text: "भाई, एक काम करो, नया ग्राहक बनाओ। इनका नाम होगा मुकेश पटेल।",
+              type: "create",
+            },
+            {
               label: "Spoken Correction: 'Nahi, 430 tha'",
               text: "नहीं 340 नहीं, 430 था",
               type: "correction",
             },
             {
-              label: "Two Ramesh: Disambiguation Trigger",
-              text: "रमेश का 350 उधार लिख दो",
-              type: "disambiguation",
-            },
-            {
-              label: "Resolve Disambiguation: 'Gupta ji'",
-              text: "रमेश गुप्ता जी",
-              type: "resolve",
+              label: "Rename: 'Ramesh ka naam Gupta ji karo'",
+              text: "रमेश का नाम बदल कर रमेश गुप्ता कर दो",
+              type: "update",
             },
             {
               label: "Itemized: 200 Maida + 50 Maggi",
@@ -570,12 +570,12 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
               <div className="flex items-center gap-2 overflow-hidden">
                 <span
                   className={`h-2 w-2 rounded-full shrink-0 ${
-                    chip.type === "correction"
-                      ? "bg-amber-400"
-                      : chip.type === "disambiguation"
-                      ? "bg-sky-400"
-                      : chip.type === "resolve"
+                    chip.type === "create"
+                      ? "bg-emerald-400"
+                      : chip.type === "update"
                       ? "bg-indigo-400"
+                      : chip.type === "correction"
+                      ? "bg-amber-400"
                       : "bg-rose-400"
                   }`}
                 />

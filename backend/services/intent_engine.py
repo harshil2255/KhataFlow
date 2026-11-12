@@ -13,17 +13,29 @@ You parse speech transcripts in Hindi (Devanagari or Romanized), Hinglish, Engli
 Extract user intentions, customer names, amounts, actions, items, and dates into strict JSON format.
 
 Supported actions:
-1. "ADD_CREDIT": Customer took goods on credit/udhaar.
-   Examples: "Ramesh ka 340 udhaar", "पूजा ने 200 रुपये का मैदा खरीदा, 50 रुपये की Maggi खरीदी। उधार में डाल दो।"
-2. "RECORD_PAYMENT": Customer paid money / jama kiya.
+1. "CREATE_CUSTOMER": User wants to create/register a new customer or ledger account.
+   Examples:
+   - "भाई, एक काम करो, नया ग्राहक बनाओ। इनका नाम होगा मुकेश पटेल।" -> action: "CREATE_CUSTOMER", customer: "Mukesh Patel"
+   - "naya grahak banao Mukesh Patel"
+   - "ek naya account kholo Ramesh ke naam se"
+   - "Suresh Sharma ka naya khata banao"
+2. "UPDATE_CUSTOMER": User wants to rename or update customer details.
+   Examples:
+   - "Ramesh ka naam badal kar Ramesh Gupta kar do" -> action: "UPDATE_CUSTOMER", customer: "Ramesh", notes: "Ramesh Gupta"
+   - "Mukesh ka phone number update karo"
+3. "ADD_CREDIT": Customer took goods on credit/udhaar. If the customer does not exist, they will be auto-created and billed!
+   Examples:
+   - "पूजा ने 200 रुपये का मैदा खरीदा, 50 रुपये की Maggi खरीदी। उधार में डाल दो।"
+   - "Ramesh ka 340 udhaar"
+   - "Mukesh Patel ke khate me 500 ka tel likh do"
+4. "RECORD_PAYMENT": Customer paid money / jama kiya.
    Examples: "kal 200 diya tha", "रमेश ने 350 रुपये नकद जमा कर दिए"
-3. "QUERY_BALANCE": User asking about balance.
+5. "QUERY_BALANCE": User asking about balance.
    Examples: "Ramesh ka total kitna baaki hai?", "रमेश का कितना बाकी है?", "aaj kitna udhaar gaya?"
-4. "CORRECTION": User correcting a previous number or entry.
+6. "CORRECTION": User correcting a previous number or entry.
    Examples: "Nahi 340 nahi, 430 tha", "nahi 430", "nahi 350 nahi 450 tha", "गलती से 300 लिख दिया, 430 करो"
-   For CORRECTION, extract the NEW amount into `amount` field (e.g. 430).
-5. "DISAMBIGUATION_RESPONSE": User specifying which customer when asked (e.g. "Gupta ji", "Verma wala", "9876 wala").
-6. "UNKNOWN": Greetings or unclear speech.
+7. "DISAMBIGUATION_RESPONSE": User specifying which customer when asked (e.g. "Gupta ji", "Verma wala", "9876 wala").
+8. "UNKNOWN": Greetings or unclear speech.
 
 Quantity Defaulting Rule:
 - When an item and price are mentioned WITHOUT explicit quantity (e.g., "200 ka maida, 50 ki Maggi"):
@@ -36,12 +48,12 @@ JSON Output Format (Strictly return only this JSON object):
 {
   "actions": [
     {
-      "action": "ADD_CREDIT" | "RECORD_PAYMENT" | "QUERY_BALANCE" | "CORRECTION" | "DISAMBIGUATION_RESPONSE" | "UNKNOWN",
+      "action": "CREATE_CUSTOMER" | "UPDATE_CUSTOMER" | "ADD_CREDIT" | "RECORD_PAYMENT" | "QUERY_BALANCE" | "CORRECTION" | "DISAMBIGUATION_RESPONSE" | "UNKNOWN",
       "customer": "Customer Name or null",
       "phone": "Phone or null",
-      "amount": 430.0,
+      "amount": 430.0 or null,
       "date": "today" | "yesterday" | "specific date",
-      "notes": "optional context or item names",
+      "notes": "optional context, new name, or item names",
       "target": "total" | "today",
       "items": [
         {
@@ -72,6 +84,7 @@ NAME_MAP_INDIC = {
     "विजय": "Vijay",
     "राहुल": "Rahul",
     "अमित": "Amit",
+    "मोहन": "Mohan",
 }
 
 ROMAN_NAME_ALIASES = {
@@ -193,6 +206,48 @@ class IntentEngine:
 
     def _heuristic_fallback(self, text: str, pending_context: Optional[Dict[str, Any]] = None) -> IntentResponse:
         lower = text.lower()
+
+        # Check for create customer: "naya grahak banao Mukesh Patel" or "नया ग्राहक बनाओ... मुकेश पटेल"
+        create_match = re.search(r'(?:naya\s+grahak|naya\s+khata|naya\s+account|grahak\s+banao|नया\s+ग्राहक).*?(?:naam|name)?\s*(?:hoga|hai)?\s*([a-zA-Z\s]+)', text, flags=re.I)
+        if create_match or any(w in lower for w in ["naya grahak", "नया ग्राहक", "banao", "add customer"]):
+            # Extract customer name
+            extracted_cust = None
+            if create_match:
+                extracted_cust = create_match.group(1).replace("hoga", "").replace("hai", "").strip()
+            if not extracted_cust:
+                words = text.split()
+                if len(words) >= 2:
+                    extracted_cust = " ".join(words[-2:]).title()
+                else:
+                    extracted_cust = "Naya Grahak"
+
+            return IntentResponse(
+                status="OK",
+                actions=[
+                    ActionItem(
+                        action="CREATE_CUSTOMER",
+                        customer=extracted_cust,
+                        notes="Voice created customer"
+                    )
+                ],
+                confidence=0.9
+            )
+
+        # Check for update name: "Ramesh ka naam badal kar Ramesh Gupta kar do"
+        update_match = re.search(r'(?:naam\s+badal\s+kar|rename|change\s+name)\s*([a-zA-Z\s]+)', text, flags=re.I)
+        if update_match:
+            new_name = update_match.group(1).replace("kar do", "").replace("karo", "").strip()
+            return IntentResponse(
+                status="OK",
+                actions=[
+                    ActionItem(
+                        action="UPDATE_CUSTOMER",
+                        customer="Ramesh",
+                        notes=new_name
+                    )
+                ],
+                confidence=0.9
+            )
 
         # Check for spoken correction: e.g. "nahi 430", "nahi, 430 tha"
         correction_match = re.search(r'(?:nahi|nhi|galat|change|sudhar|instead)\s*(?:[\w\s]*?)(\d+)', lower)
