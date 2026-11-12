@@ -1,27 +1,23 @@
 "use client";
 
-import React, { useEffect, useState, useMemo } from "react";
+import React, { useEffect, useRef, useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  PhoneCall,
-  PhoneOff,
+  Mic,
+  Volume2,
+  Clock,
   Sparkles,
   Receipt,
   FileCheck,
   RotateCcw,
   Check,
+  ChevronRight,
   Zap,
   Store,
-  Bot,
-  User,
-  ShoppingBag,
-  History,
   X,
-  ChevronRight,
+  Edit3,
 } from "lucide-react";
 import { Customer } from "./LedgerCards";
-
-export type AIOrbState = "idle" | "listening" | "thinking" | "speaking" | "clarifying";
 
 export interface LineItem {
   name: string;
@@ -41,17 +37,9 @@ export interface ActionItem {
   items?: LineItem[];
 }
 
-export interface IntentPayload {
-  status?: string;
-  actions?: ActionItem[];
-  spoken_reply?: string;
-  missing_fields?: string[];
-  confidence?: number;
-}
-
 interface LiveVisualizerProps {
-  isCallActive: boolean;
-  onToggleCall: () => void;
+  isRecording: boolean;
+  onToggleRecording: () => void;
   transcript: string;
   isFinalTranscript: boolean;
   extractedPayload: unknown;
@@ -64,8 +52,8 @@ interface LiveVisualizerProps {
 }
 
 export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
-  isCallActive,
-  onToggleCall,
+  isRecording,
+  onToggleRecording,
   transcript,
   isFinalTranscript,
   extractedPayload,
@@ -76,24 +64,21 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
   selectedCustomer,
   onClearSelectedCustomer,
 }) => {
+  const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [confirmed, setConfirmed] = useState(false);
   const [customerTxHistory, setCustomerTxHistory] = useState<any[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(false);
 
-  // Auto-reset confirmed status on new extracted payload
   useEffect(() => {
     setConfirmed(false);
   }, [extractedPayload]);
 
-  // Fetch transaction history when a customer card on the left is selected
   useEffect(() => {
     if (selectedCustomer) {
       setLoadingHistory(true);
       fetch(`http://localhost:8000/api/customers/${selectedCustomer.id}/transactions`)
         .then((res) => res.json())
-        .then((data) => {
-          setCustomerTxHistory(data.transactions || []);
-        })
+        .then((data) => setCustomerTxHistory(data.transactions || []))
         .catch(() => setCustomerTxHistory([]))
         .finally(() => setLoadingHistory(false));
     } else {
@@ -101,52 +86,37 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
     }
   }, [selectedCustomer]);
 
-  // Parse structured payload
-  const payload: IntentPayload | null = useMemo(() => {
+  const payload = useMemo(() => {
     if (!extractedPayload || typeof extractedPayload !== "object") return null;
-    return extractedPayload as IntentPayload;
+    return extractedPayload as Record<string, any>;
   }, [extractedPayload]);
 
-  // Determine current AI Orb state
-  const orbState: AIOrbState = useMemo(() => {
-    if (spokenAudioPlaying) return "speaking";
-    if (payload?.status === "NEEDS_CLARIFICATION") return "clarifying";
-    if (isCallActive && transcript && !isFinalTranscript) return "listening";
-    if (isCallActive && isFinalTranscript && !payload) return "thinking";
-    if (isCallActive) return "listening";
-    return "idle";
-  }, [spokenAudioPlaying, payload, isCallActive, transcript, isFinalTranscript]);
-
-  // Primary action extracted or default
   const primaryAction: ActionItem = useMemo(() => {
-    if (payload?.actions && payload.actions.length > 0) {
+    if (payload?.actions && Array.isArray(payload.actions) && payload.actions.length > 0) {
       return payload.actions[0];
     }
     return {
       action: "ADD_CREDIT",
-      customer: "Pooja",
-      amount: 250,
-      notes: "200 Maida + 50 Maggi",
+      customer: "Ramesh",
+      amount: 430,
+      notes: "430 Udhaar",
       items: [
-        { name: "Maida (Flour)", qty: 1, unit: "pkt", unit_price: 200, total: 200 },
-        { name: "Maggi 2-Minute Noodles", qty: 1, unit: "pkt", unit_price: 50, total: 50 },
-      ],
+        { name: "Kirana Rashan", qty: 1, unit: "lot", unit_price: 430, total: 430 }
+      ]
     };
   }, [payload]);
 
-  // Fallback / real-time line items parsed directly from speech if LLM is streaming
+  // Live itemized line items calculated as soon as you speak
   const lineItems: LineItem[] = useMemo(() => {
-    // 1. If LLM extracted structured items, use them
     if (primaryAction.items && primaryAction.items.length > 0) {
       return primaryAction.items;
     }
 
-    // 2. Real-time client-side live extraction as soon as the user speaks!
-    const activeText = transcript || primaryAction.notes || "";
-    if (activeText) {
+    const text = transcript || primaryAction.notes || "";
+    if (text) {
       const items: LineItem[] = [];
       const matches = Array.from(
-        activeText.matchAll(/(\d+)\s*(?:(?:rs|rupaye|rupees|ka|ki)\s*)?([a-zA-Z\u0900-\u097F\s]+)/gi)
+        text.matchAll(/(\d+)\s*(?:(?:rs|rupaye|rupees|ka|ki)\s*)?([a-zA-Z\u0900-\u097F\s]+)/gi)
       );
 
       for (const m of matches) {
@@ -165,15 +135,12 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
         }
       }
 
-      if (items.length > 0) {
-        return items;
-      }
+      if (items.length > 0) return items;
     }
 
-    // Default placeholder bill line items
+    const tot = primaryAction.amount || 430;
     return [
-      { name: "Maida (Flour)", qty: 1, unit: "pkt", unit_price: 200, total: 200 },
-      { name: "Maggi 2-Minute Noodles", qty: 1, unit: "pkt", unit_price: 50, total: 50 },
+      { name: "Kirana Items", qty: 1, unit: "lot", unit_price: tot, total: tot }
     ];
   }, [primaryAction, transcript]);
 
@@ -181,219 +148,185 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
     if (lineItems.length > 0) {
       return lineItems.reduce((acc, curr) => acc + (curr.total || 0), 0);
     }
-    return primaryAction.amount || 250;
+    return primaryAction.amount || 430;
   }, [lineItems, primaryAction]);
 
-  // Dynamic visual styling for the living AI Plasma Orb based on 5 states
-  const getOrbGradient = (state: AIOrbState) => {
-    switch (state) {
-      case "listening":
-        return "from-emerald-400 via-teal-500 to-cyan-500 shadow-[0_0_50px_rgba(52,211,153,0.5)]";
-      case "thinking":
-        return "from-indigo-400 via-violet-500 to-purple-600 shadow-[0_0_50px_rgba(168,85,247,0.5)] animate-spin";
-      case "speaking":
-        return "from-violet-400 via-fuchsia-500 to-indigo-500 shadow-[0_0_50px_rgba(217,70,239,0.5)]";
-      case "clarifying":
-        return "from-amber-400 via-rose-500 to-orange-500 shadow-[0_0_50px_rgba(244,63,94,0.5)]";
-      case "idle":
-      default:
-        return "from-slate-700 via-slate-800 to-slate-900 border border-white/10 shadow-[0_0_20px_rgba(255,255,255,0.05)]";
-    }
-  };
+  // Multi-frequency Audio Equalizer Waveform
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
 
-  const getOrbLabel = (state: AIOrbState) => {
-    switch (state) {
-      case "listening":
-        return "Listening to Store Speech...";
-      case "thinking":
-        return "Thinking & Calculating Bill...";
-      case "speaking":
-        return "Assistant Answering...";
-      case "clarifying":
-        return "Asking for Clarification";
-      case "idle":
-      default:
-        return "Spatial Voice Stage Ready";
-    }
-  };
+    let animId: number;
+    let step = 0;
+
+    const render = () => {
+      const width = canvas.width;
+      const height = canvas.height;
+      ctx.clearRect(0, 0, width, height);
+
+      const barCount = 32;
+      const spacing = 4;
+      const totalSpacing = (barCount - 1) * spacing;
+      const barWidth = Math.max(3, (width - 40 - totalSpacing) / barCount);
+      const startX = (width - (barCount * barWidth + totalSpacing)) / 2;
+
+      for (let i = 0; i < barCount; i++) {
+        const x = startX + i * (barWidth + spacing);
+        let barHeight = 6;
+
+        if (isRecording) {
+          const sine = Math.sin(step * 0.1 + i * 0.35);
+          barHeight = 10 + Math.abs(sine) * 36;
+        } else if (spokenAudioPlaying) {
+          const sine = Math.cos(step * 0.15 + i * 0.4);
+          barHeight = 8 + Math.abs(sine) * 34;
+        } else {
+          barHeight = 5 + Math.sin(i * 0.2) * 2;
+        }
+
+        const y = (height - barHeight) / 2;
+        const gradient = ctx.createLinearGradient(0, y, 0, y + barHeight);
+
+        if (isRecording) {
+          gradient.addColorStop(0, "#34D399");
+          gradient.addColorStop(1, "#059669");
+        } else if (spokenAudioPlaying) {
+          gradient.addColorStop(0, "#818CF8");
+          gradient.addColorStop(1, "#4F46E5");
+        } else {
+          gradient.addColorStop(0, "rgba(255, 255, 255, 0.2)");
+          gradient.addColorStop(1, "rgba(255, 255, 255, 0.05)");
+        }
+
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        ctx.roundRect(x, y, barWidth, barHeight, [barWidth / 2]);
+        ctx.fill();
+      }
+
+      step++;
+      animId = requestAnimationFrame(render);
+    };
+
+    render();
+    return () => cancelAnimationFrame(animId);
+  }, [isRecording, spokenAudioPlaying]);
 
   return (
     <div className="h-full flex flex-col space-y-4 overflow-y-auto pr-1 select-none">
-      {/* Top Half: Living AI Call Companion ("Phone Call Mode") */}
-      <div className="glass-panel p-5 relative overflow-hidden flex flex-col gap-4">
-        {/* Ambient Glow Blob */}
+      {/* Top Card: Voice Waveform & Live STT Stream */}
+      <div className="glass-panel p-5 relative overflow-hidden flex flex-col gap-3 group shrink-0">
         <div
-          className={`absolute -top-16 left-1/2 -translate-x-1/2 w-96 h-36 blur-3xl rounded-full pointer-events-none transition-all duration-700 ${
-            orbState === "listening"
-              ? "bg-emerald-500/25"
-              : orbState === "speaking"
-              ? "bg-violet-500/25"
-              : orbState === "clarifying"
-              ? "bg-amber-500/25"
-              : "bg-white/[0.03]"
+          className={`absolute -top-14 left-1/2 -translate-x-1/2 w-80 h-28 blur-3xl rounded-full pointer-events-none transition-all duration-700 ${
+            isRecording
+              ? "bg-emerald-500/20"
+              : spokenAudioPlaying
+              ? "bg-indigo-500/20"
+              : "bg-emerald-500/5"
           }`}
         />
 
-        {/* Call Companion Header & Action */}
         <div className="flex items-center justify-between z-10">
           <div className="flex items-center gap-2.5">
-            <div className="h-8 w-8 rounded-xl bg-white/[0.04] border border-white/[0.08] flex items-center justify-center text-white/70">
-              <Bot className="h-4 w-4 text-emerald-400" />
+            <div
+              className={`h-8 w-8 rounded-xl flex items-center justify-center border transition-all ${
+                isRecording
+                  ? "bg-emerald-500/20 border-emerald-500/40 text-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.3)] animate-pulse"
+                  : spokenAudioPlaying
+                  ? "bg-indigo-500/20 border-indigo-500/40 text-indigo-400 animate-pulse"
+                  : "bg-white/[0.04] border-white/[0.08] text-white/50"
+              }`}
+            >
+              {spokenAudioPlaying ? (
+                <Volume2 className="h-4 w-4" />
+              ) : (
+                <Mic className="h-4 w-4" />
+              )}
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <span className="text-xs font-bold text-white tracking-wide">
-                  SPATIAL AI CALL COMPANION
-                </span>
-                <span className="text-[10px] font-mono px-2 py-0.2 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-emerald-300 font-medium">
-                  Full-Duplex VAD
-                </span>
+              <div className="text-xs font-semibold tracking-wide text-white flex items-center gap-2">
+                <span>INDIC VOICE LEDGER ENGINE</span>
+                {isRecording && (
+                  <span className="flex items-center gap-1 text-[10px] text-emerald-400 font-mono font-medium px-1.5 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-ping" />
+                    LISTENING
+                  </span>
+                )}
+                {spokenAudioPlaying && (
+                  <span className="flex items-center gap-1 text-[10px] text-indigo-400 font-mono font-medium px-1.5 py-0.5 rounded-full bg-indigo-500/10 border border-indigo-500/20">
+                    <span className="h-1.5 w-1.5 rounded-full bg-indigo-400 animate-pulse" />
+                    SPEAKING REPLY
+                  </span>
+                )}
               </div>
-              <p className="text-[11px] text-white/40">{getOrbLabel(orbState)}</p>
-            </div>
-          </div>
-
-          {/* Start Live Call / End Call Toggle */}
-          <button
-            onClick={onToggleCall}
-            className={`px-4 py-2 rounded-2xl font-bold text-xs flex items-center gap-2 shadow-lg transition-all active:scale-95 ${
-              isCallActive
-                ? "bg-rose-500/20 hover:bg-rose-500/30 border border-rose-500/40 text-rose-300 shadow-rose-950/40"
-                : "bg-gradient-to-r from-emerald-400 to-teal-500 hover:from-emerald-300 hover:to-teal-400 text-slate-950 shadow-emerald-500/20"
-            }`}
-          >
-            {isCallActive ? (
-              <>
-                <PhoneOff className="h-3.5 w-3.5" /> End Live Call
-              </>
-            ) : (
-              <>
-                <PhoneCall className="h-3.5 w-3.5" /> Start Live Call
-              </>
-            )}
-          </button>
-        </div>
-
-        {/* Living AI Plasma Orb Stage */}
-        <div className="flex items-center justify-center py-2 relative">
-          <div className="relative flex items-center justify-center">
-            {/* Outer pulsating wave ring when active */}
-            {isCallActive && (
-              <motion.div
-                animate={{
-                  scale: [1, 1.25, 1],
-                  opacity: [0.3, 0.7, 0.3],
-                }}
-                transition={{
-                  repeat: Infinity,
-                  duration: orbState === "speaking" ? 1.2 : 2.5,
-                  ease: "easeInOut",
-                }}
-                className={`absolute w-24 h-24 rounded-full pointer-events-none blur-md ${
-                  orbState === "speaking"
-                    ? "bg-violet-500"
-                    : orbState === "clarifying"
-                    ? "bg-amber-400"
-                    : "bg-emerald-400"
-                }`}
-              />
-            )}
-
-            {/* Core Morphing Plasma Orb */}
-            <motion.div
-              animate={{
-                scale:
-                  orbState === "speaking"
-                    ? [1, 1.08, 0.98, 1.05, 1]
-                    : orbState === "listening"
-                    ? [1, 1.04, 1]
-                    : [1, 1.02, 1],
-              }}
-              transition={{
-                repeat: Infinity,
-                duration: 2.2,
-                ease: "easeInOut",
-              }}
-              className={`w-16 h-16 rounded-full bg-gradient-to-tr ${getOrbGradient(
-                orbState
-              )} flex items-center justify-center cursor-pointer transition-colors duration-500 shadow-2xl relative z-10`}
-            >
-              <Sparkles className="h-6 w-6 text-white drop-shadow-md" />
-            </motion.div>
-          </div>
-        </div>
-
-        {/* Floating Dialogue Bubbles (User Speech + AI Spoken Reply) */}
-        <div className="space-y-2 z-10">
-          {/* Shopkeeper Speech Bubble */}
-          <div className="p-3 rounded-2xl bg-black/40 border border-white/[0.06] flex items-start gap-2.5">
-            <div className="h-5 w-5 rounded-lg bg-white/[0.08] flex items-center justify-center shrink-0 mt-0.5">
-              <User className="h-3 w-3 text-white/60" />
-            </div>
-            <div className="flex-1">
-              <div className="flex items-center justify-between">
-                <span className="text-[10px] font-mono text-white/40 uppercase">Shopkeeper</span>
-                <span className="text-[10px] font-mono text-emerald-400/80">
-                  {isFinalTranscript ? "Final Frame" : transcript ? "Streaming..." : "Standby"}
-                </span>
-              </div>
-              <p className="text-xs text-white/90 font-medium mt-0.5 leading-relaxed">
-                {transcript
-                  ? `“${transcript}”`
-                  : isCallActive
-                  ? "Boliye jaise: 'Pooja ne 200 ka maida aur 50 ki Maggi li, udhaar likh do'..."
-                  : "Tap 'Start Live Call' or click test chips below to speak"}
+              <p className="text-[11px] text-white/40">
+                Natural Indic Voice Recognition • Real-time Spoken Correction
               </p>
             </div>
           </div>
 
-          {/* AI Live Spoken Reply Bubble */}
-          {(payload?.spoken_reply || spokenAudioPlaying) && (
-            <motion.div
-              initial={{ opacity: 0, y: 4 }}
-              animate={{ opacity: 1, y: 0 }}
-              className={`p-3 rounded-2xl border flex items-start gap-2.5 ${
-                orbState === "clarifying"
-                  ? "bg-amber-500/10 border-amber-500/20"
-                  : "bg-emerald-500/10 border-emerald-500/20"
+          <div className="flex items-center gap-2">
+            {ttfaLatencyMs !== null && (
+              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/[0.04] border border-white/[0.08] text-[11px] font-mono text-white/70">
+                <Clock className="h-3 w-3 text-emerald-400" />
+                <span>{ttfaLatencyMs} ms</span>
+              </div>
+            )}
+            <div className="px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-[10px] font-mono text-emerald-300 font-medium">
+              16kHz PCM
+            </div>
+          </div>
+        </div>
+
+        {/* Dynamic Multi-Bar Waveform Canvas */}
+        <div className="w-full h-14 relative flex items-center justify-center my-0.5">
+          <canvas
+            ref={canvasRef}
+            width={600}
+            height={56}
+            className="w-full h-full block"
+          />
+        </div>
+
+        {/* Live Transcription Bubble */}
+        <div className="relative rounded-2xl p-3.5 bg-black/40 border border-white/[0.06] shadow-inner">
+          <div className="flex items-center justify-between mb-1.5">
+            <span className="text-[10px] font-mono uppercase tracking-wider text-white/40">
+              Live Speech Transcript
+            </span>
+            <span
+              className={`text-[10px] font-mono font-semibold px-2 py-0.5 rounded-md ${
+                isFinalTranscript
+                  ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
+                  : transcript
+                  ? "bg-amber-500/20 text-amber-300 border border-amber-500/30 animate-pulse"
+                  : "text-white/30"
               }`}
             >
-              <div
-                className={`h-5 w-5 rounded-lg flex items-center justify-center shrink-0 mt-0.5 ${
-                  orbState === "clarifying"
-                    ? "bg-amber-500/20 text-amber-300"
-                    : "bg-emerald-500/20 text-emerald-300"
-                }`}
-              >
-                <Bot className="h-3 w-3" />
-              </div>
-              <div className="flex-1">
-                <div className="flex items-center justify-between">
-                  <span
-                    className={`text-[10px] font-mono uppercase ${
-                      orbState === "clarifying" ? "text-amber-300" : "text-emerald-300"
-                    }`}
-                  >
-                    KhataFlow Companion (edge-tts)
-                  </span>
-                  {ttfaLatencyMs && (
-                    <span className="text-[10px] font-mono text-white/40">
-                      TTFA: {ttfaLatencyMs}ms
-                    </span>
-                  )}
-                </div>
-                <p className="text-xs text-white/90 font-medium mt-0.5 leading-relaxed">
-                  {payload?.spoken_reply || "Done! Khata update kar diya gaya hai."}
-                </p>
-              </div>
-            </motion.div>
-          )}
+              {isFinalTranscript
+                ? "FINAL"
+                : transcript
+                ? "STREAMING..."
+                : "READY"}
+            </span>
+          </div>
+
+          <p
+            className={`text-sm leading-relaxed font-sans transition-all ${
+              transcript ? "text-white/95 font-medium" : "text-white/30 italic"
+            }`}
+          >
+            {transcript
+              ? `“${transcript}”`
+              : "Tap 'Bol Kar Khata Likhein' above or speak: 'Ramesh ka 340 udhaar' or 'Nahi, 430'..."}
+          </p>
         </div>
       </div>
 
       {/* Main Stage: Itemized Smart Kirana Receipt Card */}
-      <div className="glass-panel p-5 relative overflow-hidden flex flex-col shadow-2xl">
-        {/* Subtle Watermark Receipt Icon */}
+      <div className="glass-panel p-5 relative overflow-hidden flex flex-col shadow-2xl shrink-0">
         <Receipt className="absolute -bottom-6 -right-6 h-36 w-36 text-white/[0.02] pointer-events-none rotate-12" />
 
         {/* Receipt Header */}
@@ -405,7 +338,7 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="text-sm font-bold text-white tracking-tight">
-                  {selectedCustomer ? `${selectedCustomer.name} - Hisab History` : "Live Itemized Kirana Receipt"}
+                  {selectedCustomer ? `${selectedCustomer.name} - Ledger History` : "Live Itemized Kirana Receipt"}
                 </h3>
                 <span className="text-[10px] font-mono px-2 py-0.2 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 font-semibold flex items-center gap-1">
                   <Sparkles className="h-2.5 w-2.5" /> AI PARSED
@@ -413,8 +346,8 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
               </div>
               <p className="text-[11px] text-white/50">
                 {selectedCustomer
-                  ? "Inspecting customer transaction ledger"
-                  : "Automatic quantity default & multi-item calculator"}
+                  ? "Customer transaction history ledger"
+                  : "Automatic bill calculation & correction engine"}
               </p>
             </div>
           </div>
@@ -431,10 +364,16 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
               className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-lg border ${
                 primaryAction.action === "ADD_CREDIT"
                   ? "bg-rose-500/15 border-rose-500/30 text-rose-300"
+                  : primaryAction.action === "CORRECTION"
+                  ? "bg-amber-500/15 border-amber-500/30 text-amber-300"
                   : "bg-emerald-500/15 border-emerald-500/30 text-emerald-300"
               }`}
             >
-              {primaryAction.action === "ADD_CREDIT" ? "UDHAAR ENTRY" : "JAMA / CHUKTA"}
+              {primaryAction.action === "ADD_CREDIT"
+                ? "UDHAAR ENTRY"
+                : primaryAction.action === "CORRECTION"
+                ? "SUDHARA / CORRECTION"
+                : "JAMA / CHUKTA"}
             </span>
           )}
         </div>
@@ -446,7 +385,7 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
               Customer Profile
             </span>
             <span className="text-white font-semibold text-xs flex items-center gap-1.5">
-              {selectedCustomer ? selectedCustomer.name : primaryAction.customer || "Pooja"}
+              {selectedCustomer ? selectedCustomer.name : primaryAction.customer || "Ramesh"}
               <span className="text-[10px] text-emerald-400 font-mono font-normal">
                 (Verified)
               </span>
@@ -463,9 +402,9 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
           </div>
         </div>
 
-        {/* If user selected a customer on the left, display their real-time transaction ledger */}
+        {/* If user selected a customer on the left, display their transaction ledger */}
         {selectedCustomer ? (
-          <div className="py-3 overflow-y-auto max-h-60 space-y-2 pr-1">
+          <div className="py-3 overflow-y-auto max-h-56 space-y-2 pr-1">
             <span className="text-[10px] font-mono uppercase tracking-wider text-white/40 block mb-1">
               Past Purchases & Payments
             </span>
@@ -495,7 +434,7 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
             )}
           </div>
         ) : (
-          /* Itemized Line Items 4-Column Table: ITEM | QTY | RATE (₹) | TOTAL (₹) */
+          /* Itemized Line Items Table */
           <div className="py-2.5 flex flex-col justify-start">
             <div className="grid grid-cols-12 text-[10px] font-mono uppercase tracking-wider text-white/40 pb-1.5 border-b border-white/[0.04] shrink-0">
               <span className="col-span-5">Item</span>
@@ -504,8 +443,7 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
               <span className="col-span-3 text-right">Total (₹)</span>
             </div>
 
-            {/* Scrollable line-items container */}
-            <div className="space-y-1.5 pt-1.5 overflow-y-auto max-h-48 pr-1">
+            <div className="space-y-1.5 pt-1.5 overflow-y-auto max-h-40 pr-1">
               <AnimatePresence>
                 {lineItems.map((item, idx) => (
                   <motion.div
@@ -533,10 +471,8 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
               </AnimatePresence>
             </div>
 
-            {/* Dashed divider */}
             <div className="my-2.5 border-b border-dashed border-white/15 shrink-0" />
 
-            {/* Grand Total Footer */}
             <div className="space-y-1 text-xs shrink-0">
               <div className="flex justify-between items-baseline pt-0.5">
                 <div>
@@ -555,7 +491,7 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
           </div>
         )}
 
-        {/* Action Buttons: Save to Khata & Clear */}
+        {/* Action Buttons */}
         {!selectedCustomer && (
           <div className="pt-3 border-t border-white/[0.08] flex items-center gap-3 shrink-0">
             <button
@@ -598,7 +534,7 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
         <div className="flex items-center justify-between">
           <span className="text-[11px] font-bold uppercase tracking-wider text-white/50 flex items-center gap-1.5">
             <Zap className="h-3.5 w-3.5 text-amber-400" />
-            Quick Conversational Scenarios
+            Quick Indic Voice Scenarios
           </span>
           <span className="text-[10px] text-white/40">One-click testing</span>
         </div>
@@ -606,24 +542,24 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
           {[
             {
-              label: "Multi-item: 200 Maida + 50 Maggi",
+              label: "Spoken Correction: 'Nahi, 430 tha'",
+              text: "नहीं 340 नहीं, 430 था",
+              type: "correction",
+            },
+            {
+              label: "Two Ramesh: Disambiguation Trigger",
+              text: "रमेश का 350 उधार लिख दो",
+              type: "disambiguation",
+            },
+            {
+              label: "Resolve Disambiguation: 'Gupta ji'",
+              text: "रमेश गुप्ता जी",
+              type: "resolve",
+            },
+            {
+              label: "Itemized: 200 Maida + 50 Maggi",
               text: "पूजा ने 200 रुपये का मैदा खरीदा, 50 रुपये की Maggi खरीदी। उधार में डाल दो, तो total को calculate करके।",
               type: "udhaar",
-            },
-            {
-              label: "Auto-create New Customer (Suresh)",
-              text: "सुरेश के नाम पे 100 रुपये लिख दो",
-              type: "new",
-            },
-            {
-              label: "Missing Customer (Clarification test)",
-              text: "500 रुपये उधार लिख दो",
-              type: "clarify",
-            },
-            {
-              label: "Missing Price (Clarification test)",
-              text: "रमेश ने Maggi और आटा लिया",
-              type: "clarify",
             },
           ].map((chip, i) => (
             <button
@@ -634,10 +570,12 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
               <div className="flex items-center gap-2 overflow-hidden">
                 <span
                   className={`h-2 w-2 rounded-full shrink-0 ${
-                    chip.type === "new"
-                      ? "bg-emerald-400"
-                      : chip.type === "clarify"
+                    chip.type === "correction"
                       ? "bg-amber-400"
+                      : chip.type === "disambiguation"
+                      ? "bg-sky-400"
+                      : chip.type === "resolve"
+                      ? "bg-indigo-400"
                       : "bg-rose-400"
                   }`}
                 />

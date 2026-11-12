@@ -4,7 +4,7 @@ import React, { useState, useEffect, useRef, useCallback } from "react";
 import { LedgerCards, Customer, Transaction } from "@/components/LedgerCards";
 import { LiveVisualizer, ActionItem } from "@/components/LiveVisualizer";
 import { PCMAudioRecorder } from "@/lib/audioRecorder";
-import { PhoneCall, PhoneOff, Mic, Sparkles, Store, Flame, Zap } from "lucide-react";
+import { Mic, MicOff, Sparkles, Store, Flame, Zap } from "lucide-react";
 
 type RecognitionResultItem = { isFinal: boolean; 0: { transcript: string } };
 type SpeechRecognitionEventLike = {
@@ -34,8 +34,8 @@ export default function Home() {
   const [lastUpdatedCustomerId, setLastUpdatedCustomerId] = useState<number | null>(null);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
 
-  // Live Call mode state
-  const [isCallActive, setIsCallActive] = useState(false);
+  // Standard Hero Voice Input state
+  const [isRecording, setIsRecording] = useState(false);
   const [transcript, setTranscript] = useState("");
   const [isFinalTranscript, setIsFinalTranscript] = useState(false);
   const [extractedPayload, setExtractedPayload] = useState<Record<string, unknown> | null>(null);
@@ -49,7 +49,7 @@ export default function Home() {
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
 
   const customersRef = useRef<Customer[]>([]);
-  const callActiveRef = useRef(false);
+  const recordingActiveRef = useRef(false);
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Sequential audio playback queue
@@ -68,7 +68,6 @@ export default function Home() {
     }
   }, []);
 
-  // Decode audio chunks (MP3 / PCM from edge-tts)
   const playAudioChunk = useCallback(
     async (base64Data: string) => {
       try {
@@ -83,7 +82,6 @@ export default function Home() {
           bytes[i] = binaryString.charCodeAt(i);
         }
 
-        // Decode audio data buffer
         const audioBuffer = await ctx.decodeAudioData(bytes.buffer.slice(0));
         const source = ctx.createBufferSource();
         source.buffer = audioBuffer;
@@ -95,7 +93,7 @@ export default function Home() {
 
         setSpokenAudioPlaying(true);
       } catch (e) {
-        // Fallback for raw PCM or incomplete chunk
+        // Fallback for audio chunk
       }
     },
     [initPlaybackContext]
@@ -121,7 +119,7 @@ export default function Home() {
       ws.onopen = () => {
         if (unmounted) return;
         setIsConnected(true);
-        console.log("KhataFlow Spatial WebSocket connected");
+        console.log("KhataFlow Voice WebSocket connected");
       };
 
       ws.onmessage = (event) => {
@@ -162,13 +160,7 @@ export default function Home() {
             drainTimerRef.current = setTimeout(() => {
               setSpokenAudioPlaying(false);
               nextPlayTimeRef.current = 0;
-              // Full-Duplex phone call: if call is still active, listen for next turn!
-              if (callActiveRef.current && recognitionRef.current) {
-                try {
-                  recognitionRef.current.start();
-                } catch (e) {}
-              }
-            }, remainingMs + 200);
+            }, remainingMs + 150);
           }
         } catch (e) {
           console.error("Error parsing WS message:", e);
@@ -178,7 +170,6 @@ export default function Home() {
       ws.onclose = () => {
         if (unmounted) return;
         setIsConnected(false);
-        // Automatic reconnection every 2.5s if server restarts
         reconnectTimer = setTimeout(connectWebSocket, 2500);
       };
 
@@ -204,10 +195,10 @@ export default function Home() {
     };
   }, [initPlaybackContext, playAudioChunk, markHighlight]);
 
-  // Handle Full-Duplex Speech Recognition (VAD back-and-forth)
-  const stopLiveCall = useCallback(() => {
-    callActiveRef.current = false;
-    setIsCallActive(false);
+  // Dedicated Push-to-Talk / Toggle Voice Recording
+  const stopRecording = useCallback(() => {
+    recordingActiveRef.current = false;
+    setIsRecording(false);
 
     if (recognitionRef.current) {
       try {
@@ -226,10 +217,10 @@ export default function Home() {
     }
   }, []);
 
-  const startLiveCall = useCallback(async () => {
+  const startRecording = useCallback(async () => {
     initPlaybackContext();
-    setIsCallActive(true);
-    callActiveRef.current = true;
+    setIsRecording(true);
+    recordingActiveRef.current = true;
     setTranscript("");
     setIsFinalTranscript(false);
 
@@ -237,7 +228,6 @@ export default function Home() {
       socketRef.current.send(JSON.stringify({ type: "START_RECORDING" }));
     }
 
-    // Convert ArrayBuffer chunk to Base64 for WebSocket
     const arrayBufferToBase64 = (buffer: ArrayBuffer): string => {
       let binary = "";
       const bytes = new Uint8Array(buffer);
@@ -248,7 +238,7 @@ export default function Home() {
       return window.btoa(binary);
     };
 
-    // 1. Start PCM audio recorder for streaming to server
+    // 1. PCM Audio Recorder for 16kHz audio streaming
     try {
       const rec = new PCMAudioRecorder();
       await rec.start(
@@ -266,12 +256,11 @@ export default function Home() {
         () => {}
       );
       recorderRef.current = rec;
-      console.log("PCM mic stream started successfully");
     } catch (e) {
       console.warn("PCM Mic recorder failed, relying on WebSpeech:", e);
     }
 
-    // 2. Initialize browser SpeechRecognition for instant local transcription
+    // 2. WebSpeech for instant UI feedback
     const speechWin = window as unknown as SpeechWindow;
     const SpeechCtor = speechWin.SpeechRecognition || speechWin.webkitSpeechRecognition;
 
@@ -310,12 +299,9 @@ export default function Home() {
         }
       };
 
-      recognition.onerror = (err) => {
-        console.warn("WebSpeech recognition error:", err);
-      };
-
+      recognition.onerror = () => {};
       recognition.onend = () => {
-        if (callActiveRef.current && !spokenAudioPlaying) {
+        if (recordingActiveRef.current) {
           try {
             recognition.start();
           } catch (e) {}
@@ -326,18 +312,18 @@ export default function Home() {
         recognition.start();
         recognitionRef.current = recognition;
       } catch (e) {
-        console.error("SpeechRecognition start error:", e);
+        console.error("SpeechRecognition error:", e);
       }
     }
-  }, [initPlaybackContext, spokenAudioPlaying]);
+  }, [initPlaybackContext]);
 
-  const toggleLiveCall = useCallback(() => {
-    if (isCallActive) {
-      stopLiveCall();
+  const toggleRecording = useCallback(() => {
+    if (isRecording) {
+      stopRecording();
     } else {
-      void startLiveCall();
+      void startRecording();
     }
-  }, [isCallActive, startLiveCall, stopLiveCall]);
+  }, [isRecording, startRecording, stopRecording]);
 
   const handleSimulateSpeech = (text: string) => {
     initPlaybackContext();
@@ -396,7 +382,7 @@ export default function Home() {
             <div className="flex items-center gap-2">
               <span className="font-bold text-sm tracking-tight text-white">KhataFlow</span>
               <span className="text-[10px] font-mono px-2 py-0.2 rounded-full bg-white/[0.08] text-white/60 border border-white/[0.08]">
-                Spatial POS
+                Voice POS
               </span>
             </div>
             <div className="flex items-center gap-1.5">
@@ -419,25 +405,30 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Center: Live Call Toggle Bar */}
-        <div className="flex items-center gap-3">
+        {/* Center: Hero "Bol Kar Khata Likhein" Voice Action Button */}
+        <div className="flex items-center">
           <button
-            onClick={toggleLiveCall}
+            onClick={toggleRecording}
             className={`relative group px-6 py-2.5 rounded-full font-bold text-xs tracking-wide flex items-center gap-2.5 transition-all shadow-xl active:scale-[0.97] ${
-              isCallActive
+              isRecording
                 ? "bg-rose-600 hover:bg-rose-500 text-white shadow-rose-900/50"
                 : "bg-gradient-to-r from-emerald-400 to-teal-500 hover:from-emerald-300 hover:to-teal-400 text-slate-950 shadow-[0_0_25px_rgba(52,211,153,0.35)]"
             }`}
           >
-            {isCallActive ? (
+            <span
+              className={`absolute -inset-1 rounded-full opacity-40 blur-sm pointer-events-none transition-all ${
+                isRecording ? "bg-rose-500 animate-ping" : "bg-emerald-400 group-hover:opacity-75"
+              }`}
+            />
+            {isRecording ? (
               <>
-                <PhoneOff className="h-4 w-4 relative z-10" />
-                <span className="relative z-10 font-sans">End Live Call</span>
+                <MicOff className="h-4 w-4 relative z-10" />
+                <span className="relative z-10 font-sans">Sun Raha Hoon (Tap to Stop)</span>
               </>
             ) : (
               <>
-                <PhoneCall className="h-4 w-4 relative z-10" />
-                <span className="relative z-10 font-sans">Start Live AI Call</span>
+                <Mic className="h-4 w-4 relative z-10" />
+                <span className="relative z-10 font-sans">Bol Kar Khata Likhein</span>
               </>
             )}
           </button>
@@ -453,12 +444,12 @@ export default function Home() {
           </div>
 
           <div className="px-3 py-1 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-[10px] font-mono text-emerald-300 font-medium">
-            Full-Duplex VAD
+            Indic Voice
           </div>
         </div>
       </header>
 
-      {/* Main Bento Split-Screen Area (42% Left Ledger | 58% Right Call & Smart Bill Stage) */}
+      {/* Main Split-Screen Area (42% Left Ledger | 58% Right Live Voice & Receipt Stage) */}
       <div className="flex flex-1 overflow-hidden pt-3 px-4 pb-4 gap-4">
         {/* Left Column: Grahak Khata (42% width) */}
         <div className="w-[42%] h-full overflow-hidden">
@@ -472,11 +463,11 @@ export default function Home() {
           />
         </div>
 
-        {/* Right Column: AI Call Stage & Smart Kirana Receipt (58% width) */}
+        {/* Right Column: Live Voice & Smart Kirana Receipt (58% width) */}
         <div className="w-[58%] h-full overflow-hidden">
           <LiveVisualizer
-            isCallActive={isCallActive}
-            onToggleCall={toggleLiveCall}
+            isRecording={isRecording}
+            onToggleRecording={toggleRecording}
             transcript={transcript}
             isFinalTranscript={isFinalTranscript}
             extractedPayload={extractedPayload}

@@ -33,7 +33,7 @@ async def lifespan(app: FastAPI):
     logger.info("SQLite ledger initialized successfully.")
     yield
 
-app = FastAPI(title="KhataFlow Spatial POS API", version="2.0.0", lifespan=lifespan)
+app = FastAPI(title="KhataFlow Voice Ledger API", version="2.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
@@ -69,7 +69,7 @@ async def health_check():
     gnani_configured = bool(os.environ.get("GNANI_API_KEY") and not os.environ.get("GNANI_API_KEY", "").startswith("your_"))
     return {
         "status": "healthy",
-        "service": "KhataFlow Spatial AI Ledger",
+        "service": "KhataFlow Voice AI Ledger",
         "groq_configured": groq_configured,
         "gnani_configured": gnani_configured,
         "tts_engine": "edge-tts (hi-IN-SwaraNeural)",
@@ -99,45 +99,58 @@ async def create_customer(req: CreateCustomerRequest):
             customer_id=cust["id"],
             amount=req.opening_balance,
             tx_type="CREDIT",
-            notes="Opening Balance (Shuruwati Udhaar)"
+            notes="Opening Balance"
         )
     await broadcast_ledger_state()
     return {"customer": cust, "is_new": is_new}
 
-class ExecuteActionRequest(BaseModel):
-    action: str
-    customer: Optional[str] = None
-    amount: Optional[float] = None
-    notes: Optional[str] = None
-    target: Optional[str] = "total"
-
-@app.post("/api/action")
-async def execute_manual_action(req: ExecuteActionRequest):
-    action_item = ActionItem(
-        action=req.action,
-        customer=req.customer,
-        amount=req.amount,
-        notes=req.notes or "",
-        target=req.target or "total"
-    )
-    result_text, status, is_new = await process_action_item(action_item)
-    await broadcast_ledger_state()
-    return {"status": status, "spoken_text": result_text, "is_new_customer": is_new}
-
 async def process_action_item(action: ActionItem) -> tuple[str, str, bool]:
     """
     Executes a single parsed action against the ledger state machine.
-    Returns (spoken_indic_response, status_code, is_new_customer).
+    Handles:
+    - Spoken corrections ("nahi, 430", "nahi 350 nahi 450 tha")
+    - Asking a short spoken question when two customers share a name (Disambiguation)
+    - Recording credit and payments
     """
     act = action.action.upper()
 
-    # 1. Spoken correction
+    # 0. Check if user is resolving a pending disambiguation question
+    pending = ledger_manager.get_pending_disambiguation()
+    if pending and (act == "DISAMBIGUATION_RESPONSE" or action.customer or action.notes):
+        reply_text = (action.customer or action.notes or "").lower()
+        candidates = pending.get("candidates", [])
+        matched = None
+        for c in candidates:
+            if c["name"].lower() in reply_text or (c.get("phone") and c["phone"][-4:] in reply_text):
+                matched = c
+                break
+            for part in c["name"].lower().split():
+                if part in reply_text:
+                    matched = c
+                    break
+            if matched:
+                break
+
+        if matched:
+            ledger_manager.set_pending_disambiguation(None)
+            tx_type = pending.get("action", "CREDIT")
+            amt = pending.get("amount", 0.0)
+            note = pending.get("notes", "Udhaar samaan")
+            _, new_bal = await ledger_manager.record_transaction(
+                customer_id=matched["id"],
+                amount=amt,
+                tx_type=tx_type,
+                notes=note
+            )
+            return f"{matched['name']} ka {int(amt)} rupaye darj ho gaya. Ab total {int(new_bal)} rupaye baaki hai.", "RECORDED", False
+
+    # 1. Spoken correction ("nahi, 430")
     if act == "CORRECTION":
         if action.amount is not None:
             updated_info, msg = await ledger_manager.handle_spoken_correction(action.amount)
             if updated_info:
                 return msg, "CORRECTED", False
-            return msg or "Koi purana record nahi mila.", "ERROR", False
+            return msg or "Koi purana record nahi mila jise sudhara ja sake.", "ERROR", False
         return "Naya amount samajh nahi aaya.", "ERROR", False
 
     # 2. Query balance
@@ -158,12 +171,26 @@ async def process_action_item(action: ActionItem) -> tuple[str, str, bool]:
         candidates = await ledger_manager.find_customers_by_name(cust_name)
         is_new_cust = False
 
-        if len(candidates) >= 1:
+        # If TWO or MORE customers share the same name (e.g., Ramesh Gupta and Ramesh Verma):
+        # Ask a short spoken disambiguation question!
+        if len(candidates) > 1 and not action.phone:
+            names_list = " ya ".join([f"{c['name']} (phone ending {c['phone'][-4:] if c.get('phone') else 'nahi hai'})" for c in candidates])
+            spoken_question = f"{cust_name} naam ke do grahak hain: {names_list}. Kripya batayein kiske khate me likhna hai?"
+            ledger_manager.set_pending_disambiguation({
+                "action": "CREDIT" if act == "ADD_CREDIT" else "PAYMENT",
+                "customer_name": cust_name,
+                "amount": action.amount or 0.0,
+                "notes": action.notes or "Udhaar samaan",
+                "candidates": candidates
+            })
+            return spoken_question, "DISAMBIGUATION_REQUIRED", False
+
+        if len(candidates) == 1:
             customer = candidates[0]
         else:
-            # Auto-create customer if name is not found!
+            # Auto-create new customer
             customer, is_new_cust = await ledger_manager.get_or_create_customer(cust_name, action.phone)
-            logger.info(f"Auto-created new customer profile via voice: {customer['name']}")
+            logger.info(f"Created customer profile: {customer['name']}")
 
         amt = action.amount or 0.0
         tx_type = "CREDIT" if act == "ADD_CREDIT" else "PAYMENT"
@@ -188,17 +215,9 @@ async def process_action_item(action: ActionItem) -> tuple[str, str, bool]:
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
-    """
-    Main real-time bidirectional WebSocket connecting Next.js browser client to KhataFlow.
-    Features:
-    - Indic audio streaming & VAD back-and-forth
-    - Conversational state memory & clarification loops
-    - Itemized Smart Bill synthesis
-    - edge-tts warm full-duplex vocal responses
-    """
     await websocket.accept()
     connected_clients.append(websocket)
-    logger.info("Browser client connected to KhataFlow Spatial POS WebSocket.")
+    logger.info("Browser client connected to KhataFlow WebSocket.")
 
     # Send initial ledger state
     try:
@@ -217,9 +236,6 @@ async def websocket_endpoint(websocket: WebSocket):
             connected_clients.remove(websocket)
         return
 
-    # Session conversation memory
-    conversation_history: List[Dict[str, str]] = []
-    pending_context: Optional[Dict[str, Any]] = None
     active_stt_client: Optional[GnaniSTTClient] = None
     session_had_client_transcript = False
 
@@ -284,7 +300,6 @@ async def websocket_endpoint(websocket: WebSocket):
             elif msg_type == "STOP_RECORDING":
                 logger.info("Audio recording session stopped by client.")
                 if active_stt_client:
-                    # Run backend STT transcription (Groq Whisper / Vosk) if not already transcribed
                     if not session_had_client_transcript:
                         transcribed = await active_stt_client.finish_and_transcribe()
                         if transcribed:
@@ -299,7 +314,6 @@ async def websocket_endpoint(websocket: WebSocket):
                     await process_incoming_transcript(text, source=source)
 
             elif msg_type == "CONFIRM_ACTION":
-                # User tapped "Confirm & Save" on the Smart Receipt
                 act_data = msg.get("action", {})
                 action_item = ActionItem(
                     action=act_data.get("action", "ADD_CREDIT"),
@@ -309,7 +323,6 @@ async def websocket_endpoint(websocket: WebSocket):
                 )
                 spoken_reply, status, is_new = await process_action_item(action_item)
                 await broadcast_ledger_state()
-                # Synthesize confirmation audio
                 asyncio.create_task(stream_audio_response(spoken_reply, time.time()))
 
     except WebSocketDisconnect:
@@ -323,51 +336,26 @@ async def websocket_endpoint(websocket: WebSocket):
             connected_clients.remove(websocket)
 
     async def process_incoming_transcript(text: str, source: str = "gnani"):
-        """Process utterance through Groq Intent Engine + Conversational Loop."""
-        nonlocal pending_context
         start_time = time.time()
-
-        # Update conversation history
-        conversation_history.append({"role": "user", "content": text})
+        pending = ledger_manager.get_pending_disambiguation()
 
         intent_res: IntentResponse = await intent_engine.parse_intent(
             transcript=text,
-            conversation_history=conversation_history,
-            pending_context=pending_context
+            pending_context=pending
         )
 
-        logger.info(f"Intent response status: {intent_res.status}, spoken_reply: {intent_res.spoken_reply}")
-
-        # Send full structured intent payload to UI (Live itemized receipt)
+        # Send extracted payload to UI
         await websocket.send_text(json.dumps({
             "type": "INTENT_EXTRACTED",
             "payload": intent_res.model_dump()
         }))
 
-        # If conversational clarification is required
-        if intent_res.status == "NEEDS_CLARIFICATION":
-            pending_context = {
-                "missing_fields": intent_res.missing_fields,
-                "actions": [a.model_dump() for a in intent_res.actions],
-                "last_text": text
-            }
-            spoken_text = intent_res.spoken_reply or "Kripya puri jankari batayein."
-            conversation_history.append({"role": "assistant", "content": spoken_text})
-            asyncio.create_task(stream_audio_response(spoken_text, start_time))
-            return
-
-        # Status is OK: execute actions on database
-        pending_context = None
         responses_text = []
-
         for action in intent_res.actions:
             spoken_part, status, is_new = await process_action_item(action)
             responses_text.append(spoken_part)
 
         await broadcast_ledger_state()
 
-        final_spoken = intent_res.spoken_reply or " ".join(responses_text)
-        conversation_history.append({"role": "assistant", "content": final_spoken})
-
-        # Stream natural speech synthesis
+        final_spoken = " ".join(responses_text) if responses_text else (intent_res.spoken_reply or "Aapka aadesh darj ho gaya.")
         asyncio.create_task(stream_audio_response(final_spoken, start_time))

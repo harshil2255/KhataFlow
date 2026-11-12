@@ -8,82 +8,54 @@ from backend.database.models import ActionItem, LineItem, IntentResponse
 
 logger = logging.getLogger(__name__)
 
-SYSTEM_PROMPT = """You are KhataFlow's Intelligent Conversational AI & Itemized Bill Assistant for Indian Kirana Store Ledgers.
-You are running on a live phone call with an Indian shopkeeper (Kirana store owner).
-You speak natural, respectful, conversational Hinglish (warm, polite, clear).
+SYSTEM_PROMPT = """You are KhataFlow's Indic Intent Engine for Indian Kirana Store Ledgers.
+You parse speech transcripts in Hindi (Devanagari or Romanized), Hinglish, English, or Code-mixed Indic languages.
+Extract user intentions, customer names, amounts, actions, items, and dates into strict JSON format.
 
-Key Roles & Rules:
-1. QUANTITY DEFAULTING RULE:
-   - When an item and price are mentioned WITHOUT an explicit quantity (e.g. "200 ka maida, 50 ki Maggi"), automatically set:
-     - `qty`: 1.0
-     - `unit_price`: the mentioned price (e.g., 200, 50)
-     - `total`: unit_price * qty
-   - When an explicit quantity IS mentioned (e.g. "5 packet Maggi 20 wali", "2 kilo cheeni 40 rupaye"), parse:
-     - `name`: "Maggi" / "Cheeni"
-     - `qty`: 5.0 / 2.0
-     - `unit`: "pkt" / "kg"
-     - `unit_price`: 20.0 / 40.0
-     - `total`: 100.0 / 80.0
-   - Always sum item totals accurately to calculate the action's `amount`.
+Supported actions:
+1. "ADD_CREDIT": Customer took goods on credit/udhaar.
+   Examples: "Ramesh ka 340 udhaar", "पूजा ने 200 रुपये का मैदा खरीदा, 50 रुपये की Maggi खरीदी। उधार में डाल दो।"
+2. "RECORD_PAYMENT": Customer paid money / jama kiya.
+   Examples: "kal 200 diya tha", "रमेश ने 350 रुपये नकद जमा कर दिए"
+3. "QUERY_BALANCE": User asking about balance.
+   Examples: "Ramesh ka total kitna baaki hai?", "रमेश का कितना बाकी है?", "aaj kitna udhaar gaya?"
+4. "CORRECTION": User correcting a previous number or entry.
+   Examples: "Nahi 340 nahi, 430 tha", "nahi 430", "nahi 350 nahi 450 tha", "गलती से 300 लिख दिया, 430 करो"
+   For CORRECTION, extract the NEW amount into `amount` field (e.g. 430).
+5. "DISAMBIGUATION_RESPONSE": User specifying which customer when asked (e.g. "Gupta ji", "Verma wala", "9876 wala").
+6. "UNKNOWN": Greetings or unclear speech.
 
-2. MISSING DETAILS & CLARIFICATION LOOP (NEEDS_CLARIFICATION):
-   - If critical information is missing, DO NOT GUESS and DO NOT INSERT 0 rupees.
-   - If customer name is missing (e.g., "500 rupaye udhaar likh do" or "do packet biscuit likh lo"):
-     - Return status: "NEEDS_CLARIFICATION"
-     - missing_fields: ["customer"]
-     - spoken_reply: A natural, friendly question like "Bhai kis customer ke khate mein likhna hai?" or "Grahak ka naam bata dijiye kripya."
-   - If item prices/amounts are missing (e.g., "Ramesh ne Maggi aur aata liya"):
-     - Return status: "NEEDS_CLARIFICATION"
-     - missing_fields: ["amount"]
-     - spoken_reply: "Ramesh ke liye Maggi aur aate ka kitna paisa likhna hai bhai?"
-   - If customer AND amount are clear:
-     - Return status: "OK"
-     - spoken_reply: A warm, concise confirmation. E.g.: "Theek hai! Ramesh ke khate mein 2 items, total ₹250 add kar diye hain." or "Done! Suresh ke ₹100 udhaar darj ho gaye."
+Quantity Defaulting Rule:
+- When an item and price are mentioned WITHOUT explicit quantity (e.g., "200 ka maida, 50 ki Maggi"):
+  - set qty = 1.0, unit_price = mentioned price, total = price.
+- When an explicit quantity IS mentioned (e.g., "5 packet Maggi 20 wali"):
+  - set qty = 5.0, unit_price = 20.0, total = 100.0.
+- Sum item totals accurately into the action's `amount`.
 
-3. ACTIONS SUPPORTED:
-   - "ADD_CREDIT": Customer taking goods on credit/udhaar.
-   - "RECORD_PAYMENT": Customer paying cash / jama kiya / hisab chukta kiya.
-   - "QUERY_BALANCE": Asking for customer balance ("Ramesh ka kitna baaki hai?") or store total ("Aaj kitna udhaar hua?").
-   - "CORRECTION": Correcting a number ("Nahi 250 nahi, 300 tha").
-   - "UNKNOWN": Chit-chat or unclear voice.
-
-4. MULTI-TURN MEMORY INTEGRATION:
-   - You will receive previous conversation turns in the prompt if available.
-   - If the previous turn asked "Kis customer ke khate mein likhna hai?" and user now says "Suresh" or "Suresh ke", merge it with the previous items/amounts!
-   - If the previous turn asked for price and user answers "350 rupaye", merge it with the pending customer!
-
-Strict JSON output format:
+JSON Output Format (Strictly return only this JSON object):
 {
-  "status": "OK" | "NEEDS_CLARIFICATION" | "UNKNOWN",
-  "missing_fields": ["customer"] or ["amount"] or [],
-  "spoken_reply": "Warm Hinglish response to be spoken aloud via TTS",
-  "confidence": 0.95,
   "actions": [
     {
-      "action": "ADD_CREDIT" | "RECORD_PAYMENT" | "QUERY_BALANCE" | "CORRECTION" | "UNKNOWN",
+      "action": "ADD_CREDIT" | "RECORD_PAYMENT" | "QUERY_BALANCE" | "CORRECTION" | "DISAMBIGUATION_RESPONSE" | "UNKNOWN",
       "customer": "Customer Name or null",
       "phone": "Phone or null",
-      "amount": 250.0,
-      "date": "today",
-      "notes": "200 Maida + 50 Maggi",
+      "amount": 430.0,
+      "date": "today" | "yesterday" | "specific date",
+      "notes": "optional context or item names",
+      "target": "total" | "today",
       "items": [
         {
-          "name": "Maida",
+          "name": "Item name",
           "qty": 1.0,
           "unit": "pkt",
           "unit_price": 200.0,
           "total": 200.0
-        },
-        {
-          "name": "Maggi",
-          "qty": 1.0,
-          "unit": "pkt",
-          "unit_price": 50.0,
-          "total": 50.0
         }
       ]
     }
-  ]
+  ],
+  "confidence": 0.95,
+  "spoken_summary": "Short natural Hinglish feedback or null"
 }
 """
 
@@ -137,25 +109,18 @@ class IntentEngine:
         conversation_history: Optional[List[Dict[str, str]]] = None,
         pending_context: Optional[Dict[str, Any]] = None
     ) -> IntentResponse:
-        """
-        Extracts structured intent, line items, and warm spoken replies
-        using Groq LLM with multi-turn conversation memory.
-        """
         normalized_transcript = self.normalize_indic_entities(transcript.strip())
         logger.info(f"Parsing intent for transcript: '{normalized_transcript}'")
 
         if not self.client:
-            # Fallback local regex parsing
             return self._heuristic_fallback(normalized_transcript, pending_context)
 
-        # Build conversation messages for Groq
         messages = [{"role": "system", "content": SYSTEM_PROMPT}]
 
-        # Inject pending context or memory if available
         if pending_context:
             messages.append({
                 "role": "system",
-                "content": f"Active Pending Context from previous turn: {json.dumps(pending_context)}"
+                "content": f"Pending Disambiguation / Context: {json.dumps(pending_context)}"
             })
 
         if conversation_history:
@@ -164,7 +129,6 @@ class IntentEngine:
 
         messages.append({"role": "user", "content": normalized_transcript})
 
-        # Try robust Groq models
         model_candidates = [
             "llama-3.3-70b-versatile",
             "llama-3.1-8b-instant",
@@ -184,7 +148,6 @@ class IntentEngine:
                 raw_response = completion.choices[0].message.content or "{}"
                 data = json.loads(raw_response)
 
-                # Post-process items & grand total consistency
                 actions = []
                 for act in data.get("actions", []):
                     items = []
@@ -193,7 +156,7 @@ class IntentEngine:
                         u_price = float(it.get("unit_price", 0.0) or 0.0)
                         tot = float(it.get("total", qty * u_price) or (qty * u_price))
                         items.append(LineItem(
-                            name=str(it.get("name", "Kirana Item")),
+                            name=str(it.get("name", "Item")),
                             qty=qty,
                             unit=str(it.get("unit", "pkt")),
                             unit_price=u_price,
@@ -201,10 +164,10 @@ class IntentEngine:
                         ))
 
                     amt = act.get("amount")
-                    if amt is None and items:
-                        amt = sum(item.total for item in items)
-                    elif amt is not None:
+                    if amt is not None:
                         amt = float(amt)
+                    elif items:
+                        amt = sum(item.total for item in items)
 
                     actions.append(ActionItem(
                         action=act.get("action", "UNKNOWN"),
@@ -217,31 +180,35 @@ class IntentEngine:
                         items=items
                     ))
 
-                status = data.get("status", "OK")
-                spoken_reply = data.get("spoken_reply")
-                missing_fields = data.get("missing_fields", [])
-
                 return IntentResponse(
-                    status=status,
+                    status="OK",
                     actions=actions,
                     confidence=float(data.get("confidence", 0.95)),
-                    spoken_reply=spoken_reply,
-                    missing_fields=missing_fields
+                    spoken_reply=data.get("spoken_summary"),
                 )
             except Exception as e:
                 logger.warning(f"Groq model {model_name} failed: {e}. Trying next...")
 
-        # Fallback if Groq calls failed
         return self._heuristic_fallback(normalized_transcript, pending_context)
 
     def _heuristic_fallback(self, text: str, pending_context: Optional[Dict[str, Any]] = None) -> IntentResponse:
-        """Local parser if offline or API key unavailable."""
         lower = text.lower()
 
-        # Check for missing customer
-        has_amt = bool(re.search(r'\d+', lower))
-        has_credit = any(w in lower for w in ["udhaar", "likh", "khate", "credit", "baki"])
-        has_payment = any(w in lower for w in ["jama", "diya", "chukta", "pay", "payment"])
+        # Check for spoken correction: e.g. "nahi 430", "nahi, 430 tha"
+        correction_match = re.search(r'(?:nahi|nhi|galat|change|sudhar|instead)\s*(?:[\w\s]*?)(\d+)', lower)
+        if correction_match:
+            new_val = float(correction_match.group(1))
+            return IntentResponse(
+                status="OK",
+                actions=[
+                    ActionItem(
+                        action="CORRECTION",
+                        amount=new_val,
+                        notes=text
+                    )
+                ],
+                confidence=0.9
+            )
 
         # Detect names
         detected_name = None
@@ -250,32 +217,23 @@ class IntentEngine:
                 detected_name = v
                 break
 
-        # If previous turn had pending items/amount and now user gives a name
-        if not detected_name and pending_context and pending_context.get("missing_fields") == ["customer"]:
-            words = text.strip().split()
-            if words:
-                detected_name = words[0].capitalize()
-
-        if has_credit and has_amt and not detected_name:
+        # Disambiguation response check
+        if pending_context and ("gupta" in lower or "verma" in lower or "sharma" in lower or re.search(r'\d{4}', lower)):
             return IntentResponse(
-                status="NEEDS_CLARIFICATION",
-                actions=[],
-                confidence=0.8,
-                spoken_reply="Bhai kis customer ke khate mein likhna hai?",
-                missing_fields=["customer"]
+                status="OK",
+                actions=[
+                    ActionItem(
+                        action="DISAMBIGUATION_RESPONSE",
+                        customer=detected_name or text.strip(),
+                        notes=text.strip()
+                    )
+                ],
+                confidence=0.9
             )
 
-        if detected_name and not has_amt and not has_payment and not ("kitna" in lower or "balance" in lower):
-            return IntentResponse(
-                status="NEEDS_CLARIFICATION",
-                actions=[],
-                confidence=0.8,
-                spoken_reply=f"{detected_name} ke liye kitna rupaye ya kya samaan likhna hai bhai?",
-                missing_fields=["amount"]
-            )
+        has_payment = any(w in lower for w in ["jama", "diya", "chukta", "pay", "payment"])
 
-        # Parse amounts and items
-        # Example: "200 ka maida, 50 ki maggi"
+        # Parse amounts & items
         items: List[LineItem] = []
         matches = re.findall(r'(\d+)\s*(?:(?:rs|rupaye|rupees|ka|ki)\s*)?([a-zA-Z\u0900-\u097F\s]+)', text)
         for amt_str, name_str in matches:
@@ -290,7 +248,7 @@ class IntentEngine:
             if num_match:
                 total_amt = float(num_match.group(1))
 
-        cust = detected_name or "Pooja"
+        cust = detected_name or "Ramesh"
         act_type = "RECORD_PAYMENT" if has_payment else "ADD_CREDIT"
 
         act = ActionItem(
@@ -300,14 +258,12 @@ class IntentEngine:
             date="today",
             notes=text,
             items=items or [
-                LineItem(name="General Kirana Items", qty=1.0, unit="lot", unit_price=total_amt or 250.0, total=total_amt or 250.0)
+                LineItem(name="Kirana Items", qty=1.0, unit="lot", unit_price=total_amt or 250.0, total=total_amt or 250.0)
             ]
         )
 
-        spoken = f"Done! {cust} ke khate mein ₹{int(act.amount or 0)} { 'jama' if act_type=='RECORD_PAYMENT' else 'udhaar' } likh diye hain."
         return IntentResponse(
             status="OK",
             actions=[act],
             confidence=0.85,
-            spoken_reply=spoken
         )
