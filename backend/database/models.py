@@ -16,6 +16,9 @@ class TransactionModel(BaseModel):
     type: str  # CREDIT, PAYMENT, CORRECTION
     notes: Optional[str] = None
     created_at: str
+    is_deleted: int = 0
+    deleted_at: Optional[str] = None
+    idempotency_key: Optional[str] = None
 
 class ActionItem(BaseModel):
     action: str = Field(description="ADD_CREDIT, RECORD_PAYMENT, QUERY_BALANCE, CORRECTION, DISAMBIGUATION_RESPONSE, or UNKNOWN")
