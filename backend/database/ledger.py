@@ -67,6 +67,46 @@ def to_currency_float(value: Any) -> float:
     return float(to_decimal(value))
 
 
+def validate_stored_amount(raw_amt: Any, tx_id: int, action_context: str = "process transaction") -> Decimal:
+    """
+    Validate a stored transaction amount before applying financial operations.
+    Rejects:
+    - None / NULL
+    - Boolean values
+    - Non-numeric / non-convertible types
+    - Float / String / Decimal NaN or +/- Infinity
+    - Zero or negative amounts
+    Raises a descriptive ValueError identifying the transaction ID.
+    Returns the validated Decimal quantized to 2 decimal places.
+    """
+    msg_prefix = f"Cannot {action_context}: transaction {tx_id} has"
+
+    if raw_amt is None:
+        raise ValueError(f"{msg_prefix} invalid NULL amount.")
+
+    if isinstance(raw_amt, bool) or not isinstance(raw_amt, (int, float, Decimal, str)):
+        raise ValueError(f"{msg_prefix} non-numeric amount: {raw_amt!r}.")
+
+    if isinstance(raw_amt, float) and (math.isnan(raw_amt) or math.isinf(raw_amt)):
+        raise ValueError(f"{msg_prefix} non-finite amount: {raw_amt}.")
+
+    if isinstance(raw_amt, str) and raw_amt.strip().lower() in ("nan", "inf", "+inf", "-inf", "infinity", "+infinity", "-infinity"):
+        raise ValueError(f"{msg_prefix} non-finite amount: {raw_amt}.")
+
+    try:
+        amt_dec = to_decimal(raw_amt)
+    except Exception as e:
+        raise ValueError(f"{msg_prefix} non-convertible amount {raw_amt!r}: {e}") from e
+
+    if amt_dec.is_nan() or amt_dec.is_infinite():
+        raise ValueError(f"{msg_prefix} non-finite amount: {raw_amt}.")
+
+    if amt_dec <= Decimal("0.00"):
+        raise ValueError(f"{msg_prefix} non-positive amount: {raw_amt}.")
+
+    return amt_dec
+
+
 def compute_request_hash(customer_id: int, amount: Any, tx_type: str, notes: str = "") -> str:
     """
     Generate a deterministic SHA-256 fingerprint for a transaction request payload.
@@ -535,6 +575,17 @@ class LedgerManager:
         - Inside an atomic transaction (BEGIN IMMEDIATE), records transaction, updates balance,
           and registers the key and hash into idempotency_requests.
         """
+        # Validate customer_id
+        if not isinstance(customer_id, int) or isinstance(customer_id, bool) or customer_id <= 0:
+            raise ValueError(f"customer_id must be a positive integer, got: {customer_id}")
+
+        # Validate tx_type
+        if not isinstance(tx_type, str):
+            raise ValueError(f"tx_type must be a string ('CREDIT' or 'PAYMENT'), got: {type(tx_type).__name__}")
+        norm_type = tx_type.strip().upper()
+        if norm_type not in ("CREDIT", "PAYMENT"):
+            raise ValueError(f"tx_type must be 'CREDIT' or 'PAYMENT', got: '{tx_type}'")
+
         # Validate amount
         if isinstance(amount, bool) or not isinstance(amount, (int, float, Decimal)):
             raise ValueError(f"amount must be a numeric value, got: {amount}")
@@ -544,7 +595,7 @@ class LedgerManager:
         if amt_dec <= Decimal("0.00"):
             raise ValueError(f"Transaction amount must be strictly positive, got: {amount}")
 
-        incoming_hash = compute_request_hash(customer_id, amt_dec, tx_type, notes) if idempotency_key else None
+        incoming_hash = compute_request_hash(customer_id, amt_dec, norm_type, notes) if idempotency_key else None
 
         # Fast-path idempotency check before write lock
         if idempotency_key and incoming_hash:
@@ -627,9 +678,9 @@ class LedgerManager:
 
             # Pure Decimal arithmetic
             curr_dec = to_decimal(current_bal)
-            if tx_type == "CREDIT":
+            if norm_type == "CREDIT":
                 new_bal_dec = curr_dec + amt_dec
-            elif tx_type == "PAYMENT":
+            elif norm_type == "PAYMENT":
                 new_bal_dec = curr_dec - amt_dec
             else:
                 new_bal_dec = curr_dec
@@ -640,7 +691,7 @@ class LedgerManager:
             # Insert transaction
             cursor = await db.execute(
                 "INSERT INTO transactions (customer_id, amount, type, notes, idempotency_key) VALUES (?, ?, ?, ?, ?)",
-                (customer_id, saved_amount, tx_type, notes, idempotency_key)
+                (customer_id, saved_amount, norm_type, notes, idempotency_key)
             )
             tx_id = cursor.lastrowid
             self._last_transaction_id = tx_id
@@ -746,7 +797,11 @@ class LedgerManager:
                 raise ValueError(f"Cannot update soft-deleted transaction with id {transaction_id}")
 
             cust_id = tx_row["customer_id"]
-            old_amount_dec = to_decimal(tx_row["amount"])
+            old_amount_dec = validate_stored_amount(
+                tx_row["amount"],
+                transaction_id,
+                f"update transaction with id {transaction_id}"
+            )
             old_type = tx_row["type"].strip().upper()
             old_notes = tx_row["notes"] or ""
             current_cust_bal_dec = to_decimal(tx_row["customer_balance"])
@@ -842,7 +897,11 @@ class LedgerManager:
                 raise ValueError(f"Transaction with id {transaction_id} is already deleted")
 
             cust_id = tx_row["customer_id"]
-            amt_dec = to_decimal(tx_row["amount"])
+            amt_dec = validate_stored_amount(
+                tx_row["amount"],
+                transaction_id,
+                f"delete transaction with id {transaction_id}"
+            )
             tx_type = tx_row["type"].strip().upper()
             curr_cust_bal_dec = to_decimal(tx_row["customer_balance"])
 
@@ -950,52 +1009,13 @@ class LedgerManager:
             calc_dec = Decimal("0.00")
             for tx in active_txs:
                 tx_id = tx["id"]
-                raw_amt = tx["amount"]
+                amt_dec = validate_stored_amount(
+                    tx["amount"],
+                    tx_id,
+                    f"recalculate balance for customer {customer_id}"
+                )
 
-                # 4a. Validate raw amount presence, type, and finiteness
-                if raw_amt is None:
-                    raise ValueError(
-                        f"Cannot recalculate balance for customer {customer_id}: "
-                        f"transaction {tx_id} has invalid NULL amount."
-                    )
-                if isinstance(raw_amt, bool) or not isinstance(raw_amt, (int, float, Decimal, str)):
-                    raise ValueError(
-                        f"Cannot recalculate balance for customer {customer_id}: "
-                        f"transaction {tx_id} has non-numeric amount: {raw_amt!r}."
-                    )
-                if isinstance(raw_amt, float) and (math.isnan(raw_amt) or math.isinf(raw_amt)):
-                    raise ValueError(
-                        f"Cannot recalculate balance for customer {customer_id}: "
-                        f"transaction {tx_id} has non-finite amount: {raw_amt}."
-                    )
-                if isinstance(raw_amt, str) and raw_amt.strip().lower() in ("nan", "inf", "+inf", "-inf", "infinity", "+infinity", "-infinity"):
-                    raise ValueError(
-                        f"Cannot recalculate balance for customer {customer_id}: "
-                        f"transaction {tx_id} has non-finite amount: {raw_amt}."
-                    )
-
-                # 4b. Safely convert to Decimal
-                try:
-                    amt_dec = to_decimal(raw_amt)
-                except Exception as e:
-                    raise ValueError(
-                        f"Cannot recalculate balance for customer {customer_id}: "
-                        f"transaction {tx_id} has non-convertible amount {raw_amt!r}: {e}"
-                    ) from e
-
-                # 4c. Verify Decimal is finite and strictly greater than zero
-                if amt_dec.is_nan() or amt_dec.is_infinite():
-                    raise ValueError(
-                        f"Cannot recalculate balance for customer {customer_id}: "
-                        f"transaction {tx_id} has non-finite amount: {raw_amt}."
-                    )
-                if amt_dec <= Decimal("0.00"):
-                    raise ValueError(
-                        f"Cannot recalculate balance for customer {customer_id}: "
-                        f"transaction {tx_id} has non-positive amount: {raw_amt}."
-                    )
-
-                # 4d. Validate transaction type
+                # Validate transaction type
                 raw_type = tx["type"]
                 tx_type = raw_type.strip().upper() if isinstance(raw_type, str) else ""
 
