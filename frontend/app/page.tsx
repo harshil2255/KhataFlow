@@ -148,6 +148,9 @@ export default function Home() {
             setIsFinalTranscript(!!msg.is_final);
           } else if (msg.type === "INTENT_EXTRACTED") {
             setExtractedPayload(msg.payload);
+            // Whenever a voice action/bill is parsed, immediately clear any previous customer history view
+            // so the Live Smart Receipt table displays the newly parsed items & bill!
+            setSelectedCustomer(null);
           } else if (msg.type === "LATENCY_METRIC") {
             setTtfaLatencyMs(msg.ttfa_ms);
           } else if (msg.type === "AUDIO_RESPONSE_CHUNK") {
@@ -360,6 +363,23 @@ export default function Home() {
     });
   };
 
+  const handleDeleteCustomer = async (customerId: number) => {
+    await fetch(`http://localhost:8000/api/customers/${customerId}`, {
+      method: "DELETE",
+    });
+    if (selectedCustomer?.id === customerId) {
+      setSelectedCustomer(null);
+    }
+  };
+
+  const handleUpdateCustomer = async (customerId: number, data: { name: string; phone?: string }) => {
+    await fetch(`http://localhost:8000/api/customers/${customerId}`, {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
+    });
+  };
+
   const totalReceivable = customers
     .filter((c) => c.total_balance > 0)
     .reduce((sum, c) => sum + c.total_balance, 0);
@@ -460,6 +480,8 @@ export default function Home() {
             onCustomerSelect={(cust) => setSelectedCustomer(cust)}
             selectedCustomerId={selectedCustomer?.id}
             onAddCustomer={handleAddCustomer}
+            onDeleteCustomer={handleDeleteCustomer}
+            onUpdateCustomer={handleUpdateCustomer}
           />
         </div>
 

@@ -4,6 +4,7 @@ import time
 import base64
 import asyncio
 import logging
+import aiosqlite
 from typing import Dict, Any, List, Optional
 from contextlib import asynccontextmanager
 
@@ -103,6 +104,29 @@ async def create_customer(req: CreateCustomerRequest):
         )
     await broadcast_ledger_state()
     return {"customer": cust, "is_new": is_new}
+
+@app.delete("/api/customers/{customer_id}")
+async def delete_customer_endpoint(customer_id: int):
+    success = await ledger_manager.delete_customer(customer_id)
+    if not success:
+        raise HTTPException(status_code=404, detail="Customer not found")
+    await broadcast_ledger_state()
+    return {"status": "DELETED", "customer_id": customer_id}
+
+class UpdateCustomerRequest(BaseModel):
+    name: str
+    phone: Optional[str] = None
+
+@app.put("/api/customers/{customer_id}")
+async def update_customer_endpoint(customer_id: int, req: UpdateCustomerRequest):
+    async with aiosqlite.connect(ledger_manager.db_path) as db:
+        await db.execute(
+            "UPDATE customers SET name = ?, phone = ? WHERE id = ?",
+            (req.name.strip(), req.phone or "", customer_id)
+        )
+        await db.commit()
+    await broadcast_ledger_state()
+    return {"status": "UPDATED", "customer_id": customer_id, "name": req.name}
 
 async def process_action_item(action: ActionItem) -> tuple[str, str, bool]:
     """
@@ -254,21 +278,19 @@ async def websocket_endpoint(websocket: WebSocket):
     session_had_client_transcript = False
 
     async def stream_audio_response(spoken_text: str, start_time: float):
-        """Synthesize warm voice using edge-tts and stream to client."""
-        first_chunk_sent = False
+        """Synthesize warm voice using edge-tts as complete buffer to prevent stuttering."""
         try:
-            async for audio_chunk in edge_tts_client.synthesize_stream(spoken_text):
-                if not first_chunk_sent:
-                    ttfa_ms = int((time.time() - start_time) * 1000)
-                    first_chunk_sent = True
-                    await websocket.send_text(json.dumps({
-                        "type": "LATENCY_METRIC",
-                        "ttfa_ms": ttfa_ms
-                    }))
+            audio_bytes = await edge_tts_client.synthesize(spoken_text)
+            if audio_bytes:
+                ttfa_ms = int((time.time() - start_time) * 1000)
+                await websocket.send_text(json.dumps({
+                    "type": "LATENCY_METRIC",
+                    "ttfa_ms": ttfa_ms
+                }))
 
                 await websocket.send_text(json.dumps({
                     "type": "AUDIO_RESPONSE_CHUNK",
-                    "audio_base64": base64.b64encode(audio_chunk).decode("utf-8")
+                    "audio_base64": base64.b64encode(audio_bytes).decode("utf-8")
                 }))
 
             await websocket.send_text(json.dumps({

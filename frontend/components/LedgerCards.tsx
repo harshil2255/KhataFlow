@@ -15,6 +15,9 @@ import {
   X,
   ChevronRight,
   TrendingUp,
+  Trash2,
+  Edit2,
+  Check,
 } from "lucide-react";
 
 export interface Customer {
@@ -43,6 +46,8 @@ interface LedgerCardsProps {
   onCustomerSelect?: (customer: Customer) => void;
   selectedCustomerId?: number | null;
   onAddCustomer: (customerData: { name: string; phone: string; opening_balance: number }) => Promise<void>;
+  onDeleteCustomer?: (customerId: number) => Promise<void>;
+  onUpdateCustomer?: (customerId: number, data: { name: string; phone?: string }) => Promise<void>;
 }
 
 export const LedgerCards: React.FC<LedgerCardsProps> = ({
@@ -52,6 +57,8 @@ export const LedgerCards: React.FC<LedgerCardsProps> = ({
   onCustomerSelect,
   selectedCustomerId,
   onAddCustomer,
+  onDeleteCustomer,
+  onUpdateCustomer,
 }) => {
   const [filter, setFilter] = useState<"all" | "credit" | "settled">("all");
   const [searchQuery, setSearchQuery] = useState("");
@@ -60,6 +67,12 @@ export const LedgerCards: React.FC<LedgerCardsProps> = ({
   const [newPhone, setNewPhone] = useState("");
   const [newOpeningBal, setNewOpeningBal] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  // Edit customer state
+  const [editingCustomer, setEditingCustomer] = useState<Customer | null>(null);
+  const [editName, setEditName] = useState("");
+  const [editPhone, setEditPhone] = useState("");
+  const [isUpdating, setIsUpdating] = useState(false);
 
   const filteredCustomers = useMemo(() => {
     return customers.filter((cust) => {
@@ -93,6 +106,32 @@ export const LedgerCards: React.FC<LedgerCardsProps> = ({
     }
   };
 
+  const handleSaveEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editingCustomer || !editName.trim()) return;
+    setIsUpdating(true);
+    try {
+      if (onUpdateCustomer) {
+        await onUpdateCustomer(editingCustomer.id, {
+          name: editName.trim(),
+          phone: editPhone.trim(),
+        });
+      }
+      setEditingCustomer(null);
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  const handleDelete = async (e: React.MouseEvent, custId: number) => {
+    e.stopPropagation();
+    if (confirm("Kya aap sach me is grahak ko hatana chahte hain?")) {
+      if (onDeleteCustomer) {
+        await onDeleteCustomer(custId);
+      }
+    }
+  };
+
   const getMonogram = (name: string) => {
     const parts = name.trim().split(" ");
     if (parts.length >= 2) return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
@@ -115,7 +154,6 @@ export const LedgerCards: React.FC<LedgerCardsProps> = ({
       {/* Top Search & Action Bar */}
       <div className="flex flex-col gap-3 shrink-0">
         <div className="flex items-center gap-2.5">
-          {/* Frosted Search Input */}
           <div className="relative flex-1">
             <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-white/40" />
             <input
@@ -127,7 +165,6 @@ export const LedgerCards: React.FC<LedgerCardsProps> = ({
             />
           </div>
 
-          {/* + Naya Grahak Button */}
           <button
             onClick={() => setIsModalOpen(true)}
             className="px-3.5 py-2.5 rounded-2xl bg-gradient-to-r from-emerald-500/20 to-teal-500/20 hover:from-emerald-500/30 hover:to-teal-500/30 border border-emerald-500/30 text-emerald-300 text-xs font-semibold flex items-center gap-1.5 transition-all shadow-[0_0_15px_rgba(52,211,153,0.1)] active:scale-95 shrink-0"
@@ -168,7 +205,7 @@ export const LedgerCards: React.FC<LedgerCardsProps> = ({
         </div>
       </div>
 
-      {/* Customer Ledger List (Scrollable) */}
+      {/* Customer Ledger List */}
       <div className="flex-1 overflow-y-auto space-y-2.5 pr-1">
         <AnimatePresence>
           {filteredCustomers.length === 0 ? (
@@ -225,34 +262,59 @@ export const LedgerCards: React.FC<LedgerCardsProps> = ({
                       </div>
                     </div>
 
-                    {/* Right: Tabular Balance & Status Badge */}
-                    <div className="flex flex-col items-end">
-                      <span
-                        className={`font-mono font-bold text-sm tabular-nums tracking-tight ${
-                          isCredit
-                            ? "text-[#FB7185]"
+                    {/* Right: Actions, Balance & Status Badge */}
+                    <div className="flex items-center gap-3">
+                      {/* Hover action icons: Edit & Delete */}
+                      <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1 transition-opacity">
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setEditingCustomer(cust);
+                            setEditName(cust.name);
+                            setEditPhone(cust.phone || "");
+                          }}
+                          className="h-7 w-7 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-white/60 hover:text-white flex items-center justify-center transition-colors"
+                          title="Edit Customer"
+                        >
+                          <Edit2 className="h-3.5 w-3.5" />
+                        </button>
+                        <button
+                          onClick={(e) => handleDelete(e, cust.id)}
+                          className="h-7 w-7 rounded-lg bg-white/[0.06] hover:bg-rose-500/20 text-white/60 hover:text-rose-400 flex items-center justify-center transition-colors"
+                          title="Delete Customer"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
+
+                      <div className="flex flex-col items-end">
+                        <span
+                          className={`font-mono font-bold text-sm tabular-nums tracking-tight ${
+                            isCredit
+                              ? "text-[#FB7185]"
+                              : isAdvance
+                              ? "text-sky-300"
+                              : "text-[#34D399]"
+                          }`}
+                        >
+                          {isCredit
+                            ? `₹${cust.total_balance.toLocaleString("en-IN")}`
                             : isAdvance
-                            ? "text-sky-300"
-                            : "text-[#34D399]"
-                        }`}
-                      >
-                        {isCredit
-                          ? `₹${cust.total_balance.toLocaleString("en-IN")}`
-                          : isAdvance
-                          ? `+₹${Math.abs(cust.total_balance).toLocaleString("en-IN")}`
-                          : "₹0"}
-                      </span>
-                      <span
-                        className={`text-[10px] font-mono px-2 py-0.5 rounded-md mt-0.5 ${
-                          isCredit
-                            ? "bg-rose-500/10 text-rose-300 border border-rose-500/20"
-                            : isAdvance
-                            ? "bg-sky-500/10 text-sky-300 border border-sky-500/20"
-                            : "bg-emerald-500/10 text-emerald-300 border border-emerald-500/20"
-                        }`}
-                      >
-                        {isCredit ? "Udhaar Baaki" : isAdvance ? "Advance" : "Chukta"}
-                      </span>
+                            ? `+₹${Math.abs(cust.total_balance).toLocaleString("en-IN")}`
+                            : "₹0"}
+                        </span>
+                        <span
+                          className={`text-[10px] font-mono px-2 py-0.5 rounded-md mt-0.5 ${
+                            isCredit
+                              ? "bg-rose-500/10 text-rose-300 border border-rose-500/20"
+                              : isAdvance
+                              ? "bg-sky-500/10 text-sky-300 border border-sky-500/20"
+                              : "bg-emerald-500/10 text-emerald-300 border border-emerald-500/20"
+                          }`}
+                        >
+                          {isCredit ? "Udhaar Baaki" : isAdvance ? "Advance" : "Chukta"}
+                        </span>
+                      </div>
                     </div>
                   </div>
                 </motion.div>
@@ -311,7 +373,7 @@ export const LedgerCards: React.FC<LedgerCardsProps> = ({
         </div>
       </div>
 
-      {/* Glass Popover/Modal for + Naya Grahak */}
+      {/* Modal for + Naya Grahak */}
       <AnimatePresence>
         {isModalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md p-4">
@@ -391,6 +453,79 @@ export const LedgerCards: React.FC<LedgerCardsProps> = ({
                     className="flex-1 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 text-xs font-bold shadow-lg shadow-emerald-500/20 active:scale-95"
                   >
                     {isSubmitting ? "Jod Rahe Hain..." : "Khata Banayein"}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Modal for Editing Customer */}
+      <AnimatePresence>
+        {editingCustomer && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              className="glass-modal w-full max-w-sm p-6 relative overflow-hidden"
+            >
+              <div className="flex items-center justify-between pb-3 border-b border-white/[0.08]">
+                <div className="flex items-center gap-2">
+                  <div className="h-7 w-7 rounded-xl bg-indigo-500/20 border border-indigo-500/30 flex items-center justify-center text-indigo-400">
+                    <Edit2 className="h-4 w-4" />
+                  </div>
+                  <h4 className="text-sm font-bold text-white">Grahak Details Sudharein</h4>
+                </div>
+                <button
+                  onClick={() => setEditingCustomer(null)}
+                  className="h-6 w-6 rounded-lg bg-white/[0.05] hover:bg-white/[0.1] text-white/50 hover:text-white flex items-center justify-center transition-colors"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+
+              <form onSubmit={handleSaveEdit} className="mt-4 space-y-3.5">
+                <div>
+                  <label className="text-[11px] font-mono uppercase tracking-wider text-white/50 block mb-1">
+                    Grahak Ka Naam
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    value={editName}
+                    onChange={(e) => setEditName(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-white/[0.04] border border-white/[0.1] text-white text-xs outline-none focus:border-indigo-400"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[11px] font-mono uppercase tracking-wider text-white/50 block mb-1">
+                    Phone Number
+                  </label>
+                  <input
+                    type="tel"
+                    value={editPhone}
+                    onChange={(e) => setEditPhone(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-white/[0.04] border border-white/[0.1] text-white text-xs outline-none focus:border-indigo-400 font-mono"
+                  />
+                </div>
+
+                <div className="pt-2 flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditingCustomer(null)}
+                    className="flex-1 py-2 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-white/60 text-xs font-semibold"
+                  >
+                    Radd Karein
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isUpdating}
+                    className="flex-1 py-2 rounded-xl bg-gradient-to-r from-indigo-500 to-purple-500 text-white text-xs font-bold shadow-lg shadow-indigo-500/20 active:scale-95"
+                  >
+                    {isUpdating ? "Sudhar Rahe Hain..." : "Save Karein"}
                   </button>
                 </div>
               </form>

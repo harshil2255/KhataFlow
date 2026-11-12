@@ -135,6 +135,16 @@ class LedgerManager:
                 await db.commit()
                 cust["name"] = cleaned_new
                 return cust, f"Grahak ka naam badal kar '{cleaned_new}' kar diya gaya hai."
+
+    async def delete_customer(self, customer_id: int) -> bool:
+        """Deletes a customer and cascades all transactions."""
+        async with aiosqlite.connect(self.db_path) as db:
+            await db.execute("DELETE FROM transactions WHERE customer_id = ?", (customer_id,))
+            cursor = await db.execute("DELETE FROM customers WHERE id = ?", (customer_id,))
+            await db.commit()
+            return cursor.rowcount > 0
+
+    async def get_customer_transactions(self, customer_id: int, limit: int = 25) -> List[Dict[str, Any]]:
         """Returns recent transactions for a specific customer."""
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
