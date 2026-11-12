@@ -429,56 +429,119 @@ export default function Home() {
     }
   };
 
+  // Total Receivable calculation
+  const totalReceivable = customers
+    .filter((c) => c.total_balance > 0)
+    .reduce((sum, c) => sum + c.total_balance, 0);
+
+  const handleConfirmAction = (actionItem: { action?: string; customer?: string; amount?: number; notes?: string }) => {
+    if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+      socketRef.current.send(
+        JSON.stringify({
+          type: "CONFIRM_ACTION",
+          action: actionItem.action,
+          customer: actionItem.customer,
+          amount: actionItem.amount,
+          notes: actionItem.notes,
+        })
+      );
+    }
+  };
+
   return (
-    <div className="flex flex-col h-screen w-full bg-slate-950 font-sans select-none overflow-hidden">
-      {/* Top Header bar with status indicators */}
-      <header className="h-12 border-b border-slate-800 bg-slate-950 px-4 flex items-center justify-between">
-        <div className="flex items-center space-x-3">
-          <div className="flex items-center gap-2">
-            <span className="relative flex h-3 w-3">
-              <span className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${isConnected ? "bg-emerald-400" : "bg-red-400"}`}></span>
-              <span className={`relative inline-flex rounded-full h-3 w-3 ${isConnected ? "bg-emerald-500" : "bg-red-500"}`}></span>
-            </span>
-            <span className="text-xs font-semibold text-slate-300">
-              {isConnected ? "KhataFlow Engine Online (8000)" : "Connecting to Engine..."}
-            </span>
+    <div className="relative flex flex-col h-screen w-full bg-[#05070D] font-sans select-none overflow-hidden text-white">
+      {/* Ambient Mesh Gradients */}
+      <div className="absolute top-[-15%] left-[-10%] w-[550px] h-[550px] rounded-full bg-[#064E3B]/15 blur-[130px] pointer-events-none" />
+      <div className="absolute bottom-[-15%] right-[-10%] w-[550px] h-[550px] rounded-full bg-[#1E1B4B]/15 blur-[130px] pointer-events-none" />
+      <div className="absolute top-[40%] right-[30%] w-[350px] h-[350px] rounded-full bg-emerald-500/[0.03] blur-[100px] pointer-events-none" />
+
+      {/* Top Floating Glass Command Bar */}
+      <header className="z-20 h-16 px-6 mx-4 mt-3 rounded-2xl glass-panel flex items-center justify-between shrink-0">
+        {/* Left: Brand & Engine Status */}
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2.5">
+            <div className="h-8 w-8 rounded-xl bg-gradient-to-tr from-emerald-500 to-teal-400 flex items-center justify-center font-bold text-slate-950 text-sm shadow-[0_0_15px_rgba(52,211,153,0.3)]">
+              KF
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-bold text-sm tracking-tight text-white">KhataFlow</span>
+                <span className="text-[10px] font-mono px-1.5 py-0.2 rounded bg-white/[0.06] text-white/50 border border-white/[0.08]">
+                  v2.0 POS
+                </span>
+              </div>
+              <div className="flex items-center gap-1.5">
+                <span className="relative flex h-2 w-2">
+                  <span
+                    className={`animate-ping absolute inline-flex h-full w-full rounded-full opacity-75 ${
+                      isConnected ? "bg-emerald-400" : "bg-rose-400"
+                    }`}
+                  />
+                  <span
+                    className={`relative inline-flex rounded-full h-2 w-2 ${
+                      isConnected ? "bg-emerald-500" : "bg-rose-500"
+                    }`}
+                  />
+                </span>
+                <span className="text-[11px] text-white/50 font-medium">
+                  {isConnected ? "Engine Online • 8000" : "Connecting..."}
+                </span>
+              </div>
+            </div>
           </div>
         </div>
 
-        {/* Center Mic Action Button */}
-        <div className="flex items-center gap-3">
+        {/* Center: Hero Animated Voice Trigger Button */}
+        <div className="flex items-center">
           <button
             onClick={toggleRecording}
-            className={`px-5 py-2 rounded-full font-bold text-xs flex items-center gap-2 shadow-lg transition-all ${
+            className={`relative group px-6 py-2.5 rounded-full font-bold text-xs tracking-wide flex items-center gap-2.5 transition-all shadow-xl active:scale-[0.97] ${
               isRecording
-                ? "bg-red-600 hover:bg-red-500 text-white animate-pulse shadow-red-900/60"
-                : "bg-emerald-600 hover:bg-emerald-500 text-white shadow-emerald-900/40"
+                ? "bg-rose-600 hover:bg-rose-500 text-white shadow-rose-900/50"
+                : "bg-gradient-to-r from-emerald-400 to-teal-500 hover:from-emerald-300 hover:to-teal-400 text-slate-950 shadow-[0_0_25px_rgba(52,211,153,0.35)]"
             }`}
           >
+            {/* Outer reactive pulse ring */}
+            <span
+              className={`absolute -inset-1 rounded-full opacity-40 blur-sm pointer-events-none transition-all ${
+                isRecording
+                  ? "bg-rose-500 animate-ping"
+                  : "bg-emerald-400 group-hover:opacity-75"
+              }`}
+            />
             {isRecording ? (
               <>
-                <MicOff className="h-4 w-4" /> Sun Raha Hoon (Listening...)
+                <MicOff className="h-4 w-4 relative z-10" />
+                <span className="relative z-10 font-sans">Sun Raha Hoon (Tap to Stop)</span>
               </>
             ) : (
               <>
-                <Mic className="h-4 w-4" /> Bol Kar Khata Likhein (Voice Input)
+                <Mic className="h-4 w-4 relative z-10" />
+                <span className="relative z-10 font-sans">Bol Kar Khata Likhein</span>
               </>
             )}
           </button>
         </div>
 
-        {/* Right Info */}
-        <div className="flex items-center gap-3 text-xs text-slate-400">
-          <span className="font-mono bg-slate-900 px-2 py-1 rounded border border-slate-800 text-[11px]">
-            Indic PCM @ 16kHz
-          </span>
+        {/* Right: Kul Udhaar KPI Pill Badge */}
+        <div className="flex items-center gap-3">
+          <div className="hidden sm:flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-white/[0.03] border border-white/[0.08]">
+            <span className="text-[11px] font-medium text-white/50">Kul Udhaar:</span>
+            <span className="font-mono font-bold text-sm text-[#FB7185] tabular-nums">
+              ₹{totalReceivable.toLocaleString("en-IN")}
+            </span>
+          </div>
+
+          <div className="px-2.5 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/20 text-[10px] font-mono text-emerald-300 font-medium">
+            Indic ASR
+          </div>
         </div>
       </header>
 
-      {/* Main Split Screen Area */}
-      <div className="flex flex-1 overflow-hidden">
-        {/* Left Screen: Kirana Khata Book Dashboard */}
-        <div className="w-1/2 h-full overflow-hidden">
+      {/* Main Split Screen Area (42% Left Ledger | 58% Right Live Stage) */}
+      <div className="flex flex-1 overflow-hidden pt-3 px-4 pb-4 gap-4">
+        {/* Left Column: Kirana Ledger & Quick Feed (42% width) */}
+        <div className="w-[42%] h-full overflow-hidden">
           <LedgerCards
             customers={customers}
             transactions={transactions}
@@ -486,8 +549,8 @@ export default function Home() {
           />
         </div>
 
-        {/* Right Screen: Judge Live Demo Visualizer */}
-        <div className="w-1/2 h-full overflow-hidden">
+        {/* Right Column: Live Voice & Smart Receipt Stage (58% width) */}
+        <div className="w-[58%] h-full overflow-hidden">
           <LiveVisualizer
             isRecording={isRecording}
             transcript={transcript}
@@ -499,6 +562,7 @@ export default function Home() {
             onSimulateSpeech={handleSimulateSpeech}
             sttSource={sttSource}
             sttMessage={sttMessage}
+            onConfirmAction={handleConfirmAction}
           />
         </div>
       </div>
