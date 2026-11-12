@@ -143,10 +143,10 @@ class IntentEngine:
         messages.append({"role": "user", "content": normalized_transcript})
 
         model_candidates = [
-            "llama-3.3-70b-versatile",
-            "llama-3.1-8b-instant",
             "qwen/qwen3.8-27b",
-            "openai/gpt-oss-120b"
+            "openai/gpt-oss-120b",
+            "llama-3.3-70b-versatile",
+            "llama-3.1-8b-instant"
         ]
 
         for model_name in model_candidates:

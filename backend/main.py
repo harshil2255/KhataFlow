@@ -278,6 +278,34 @@ async def websocket_endpoint(websocket: WebSocket):
         except Exception as e:
             logger.error(f"Error streaming edge_tts audio: {e}")
 
+    async def process_incoming_transcript(text: str, source: str = "gnani"):
+        start_time = time.time()
+        logger.info(f"Processing transcript '{text}' from {source}")
+        pending = ledger_manager.get_pending_disambiguation()
+
+        intent_res: IntentResponse = await intent_engine.parse_intent(
+            transcript=text,
+            pending_context=pending
+        )
+
+        logger.info(f"Parsed intent response: {intent_res.model_dump()}")
+
+        # Send extracted payload to UI
+        await websocket.send_text(json.dumps({
+            "type": "INTENT_EXTRACTED",
+            "payload": intent_res.model_dump()
+        }))
+
+        responses_text = []
+        for action in intent_res.actions:
+            spoken_part, status, is_new = await process_action_item(action)
+            responses_text.append(spoken_part)
+
+        await broadcast_ledger_state()
+
+        final_spoken = " ".join(responses_text) if responses_text else (intent_res.spoken_reply or "Aapka aadesh darj ho gaya.")
+        asyncio.create_task(stream_audio_response(final_spoken, start_time))
+
     try:
         while True:
             raw_msg = await websocket.receive_text()
@@ -348,28 +376,3 @@ async def websocket_endpoint(websocket: WebSocket):
             await active_stt_client.disconnect()
         if websocket in connected_clients:
             connected_clients.remove(websocket)
-
-    async def process_incoming_transcript(text: str, source: str = "gnani"):
-        start_time = time.time()
-        pending = ledger_manager.get_pending_disambiguation()
-
-        intent_res: IntentResponse = await intent_engine.parse_intent(
-            transcript=text,
-            pending_context=pending
-        )
-
-        # Send extracted payload to UI
-        await websocket.send_text(json.dumps({
-            "type": "INTENT_EXTRACTED",
-            "payload": intent_res.model_dump()
-        }))
-
-        responses_text = []
-        for action in intent_res.actions:
-            spoken_part, status, is_new = await process_action_item(action)
-            responses_text.append(spoken_part)
-
-        await broadcast_ledger_state()
-
-        final_spoken = " ".join(responses_text) if responses_text else (intent_res.spoken_reply or "Aapka aadesh darj ho gaya.")
-        asyncio.create_task(stream_audio_response(final_spoken, start_time))
