@@ -298,6 +298,8 @@ async def websocket_endpoint(websocket: WebSocket):
 
     active_stt_client: Optional[GnaniSTTClient] = None
     session_had_client_transcript = False
+    last_processed_text = ""
+    last_processed_time = 0.0
 
     async def stream_audio_response(spoken_text: str, start_time: float):
         """Synthesize warm voice using edge-tts as complete buffer to prevent stuttering."""
@@ -323,6 +325,16 @@ async def websocket_endpoint(websocket: WebSocket):
             logger.error(f"Error streaming edge_tts audio: {e}")
 
     async def process_incoming_transcript(text: str, source: str = "gnani"):
+        nonlocal last_processed_text, last_processed_time
+        clean_text = text.strip()
+        now = time.time()
+        # De-duplicate duplicate transcripts received within 3.5 seconds
+        if clean_text == last_processed_text and (now - last_processed_time) < 3.5:
+            logger.info(f"Skipping duplicate transcript from {source}: '{clean_text}'")
+            return
+        last_processed_text = clean_text
+        last_processed_time = now
+
         start_time = time.time()
         logger.info(f"Processing transcript '{text}' from {source}")
         pending = ledger_manager.get_pending_disambiguation()
