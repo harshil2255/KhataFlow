@@ -8,7 +8,6 @@ from contextlib import asynccontextmanager
 from typing import List, Optional, Tuple, Dict, Any
 from datetime import datetime
 from decimal import Decimal, ROUND_HALF_UP
-from backend.database.models import CustomerModel, TransactionModel
 
 logger = logging.getLogger("KhataFlowLedger")
 
@@ -488,7 +487,7 @@ class LedgerManager:
     ) -> List[Dict[str, Any]]:
         """
         Fetch active (non-deleted) transactions belonging strictly to the requested customer_id.
-        - Excludes soft-deleted transactions (is_deleted = 0).
+        - Excludes soft-deleted transactions (queries WHERE is_deleted = 0).
         - Ordered newest first (created_at DESC), with transaction id DESC as secondary tie-breaker.
         - Supports limit (1 to 100) and offset (>= 0) pagination.
         - Returns empty list if customer exists with no transactions.
@@ -568,7 +567,7 @@ class LedgerManager:
         """
         Record a credit or payment transaction and atomically update customer's balance.
         If idempotency_key is provided:
-        - Computes SHA-256 fingerprint from (customer_id, amount, tx_type).
+        - Computes SHA-256 fingerprint from (customer_id, amount, tx_type, notes).
         - If key already exists:
             - If fingerprint matches (or legacy fields match): returns original transaction without modifying balance.
             - If fingerprint differs: raises IdempotencyConflictError (HTTP 409 Conflict).
@@ -625,7 +624,7 @@ class LedgerManager:
                             if (
                                 tx_dict["customer_id"] != customer_id
                                 or to_decimal(tx_dict["amount"]) != amt_dec
-                                or tx_dict["type"].strip().upper() != tx_type.strip().upper()
+                                or tx_dict["type"].strip().upper() != norm_type
                                 or (tx_dict.get("notes") or "").strip() != (notes or "").strip()
                             ):
                                 raise IdempotencyConflictError(
@@ -661,7 +660,7 @@ class LedgerManager:
                             if (
                                 tx_dict["customer_id"] != customer_id
                                 or to_decimal(tx_dict["amount"]) != amt_dec
-                                or tx_dict["type"].strip().upper() != tx_type.strip().upper()
+                                or tx_dict["type"].strip().upper() != norm_type
                                 or (tx_dict.get("notes") or "").strip() != (notes or "").strip()
                             ):
                                 raise IdempotencyConflictError(
