@@ -626,3 +626,6 @@ class GnaniSTTClient:
                 pass
             self.ws = None
         self._pcm_buffer.clear()
+
+    async def disconnect(self):
+        await self.close()

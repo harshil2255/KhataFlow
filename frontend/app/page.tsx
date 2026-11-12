@@ -237,7 +237,41 @@ export default function Home() {
       socketRef.current.send(JSON.stringify({ type: "START_RECORDING" }));
     }
 
-    // Initialize browser SpeechRecognition
+    // Convert ArrayBuffer chunk to Base64 for WebSocket
+    const arrayBufferToBase64 = (buffer: ArrayBuffer): string => {
+      let binary = "";
+      const bytes = new Uint8Array(buffer);
+      const len = bytes.byteLength;
+      for (let i = 0; i < len; i++) {
+        binary += String.fromCharCode(bytes[i]);
+      }
+      return window.btoa(binary);
+    };
+
+    // 1. Start PCM audio recorder for streaming to server
+    try {
+      const rec = new PCMAudioRecorder();
+      await rec.start(
+        (chunkBuffer) => {
+          if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+            const base64Chunk = arrayBufferToBase64(chunkBuffer);
+            socketRef.current.send(
+              JSON.stringify({
+                type: "AUDIO_CHUNK",
+                chunk: base64Chunk,
+              })
+            );
+          }
+        },
+        () => {}
+      );
+      recorderRef.current = rec;
+      console.log("PCM mic stream started successfully");
+    } catch (e) {
+      console.warn("PCM Mic recorder failed, relying on WebSpeech:", e);
+    }
+
+    // 2. Initialize browser SpeechRecognition for instant local transcription
     const speechWin = window as unknown as SpeechWindow;
     const SpeechCtor = speechWin.SpeechRecognition || speechWin.webkitSpeechRecognition;
 
@@ -260,7 +294,9 @@ export default function Home() {
         }
 
         const currentText = finalStr || interim;
-        setTranscript(currentText);
+        if (currentText) {
+          setTranscript(currentText);
+        }
         setIsFinalTranscript(!!finalStr);
 
         if (finalStr && socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
@@ -274,7 +310,10 @@ export default function Home() {
         }
       };
 
-      recognition.onerror = () => {};
+      recognition.onerror = (err) => {
+        console.warn("WebSpeech recognition error:", err);
+      };
+
       recognition.onend = () => {
         if (callActiveRef.current && !spokenAudioPlaying) {
           try {
@@ -289,27 +328,6 @@ export default function Home() {
       } catch (e) {
         console.error("SpeechRecognition start error:", e);
       }
-    }
-
-    // Also start PCM audio recorder for 16kHz audio stream
-    try {
-      const rec = new PCMAudioRecorder();
-      await rec.start(
-        (chunkBase64) => {
-          if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
-            socketRef.current.send(
-              JSON.stringify({
-                type: "AUDIO_CHUNK",
-                chunk: chunkBase64,
-              })
-            );
-          }
-        },
-        () => {}
-      );
-      recorderRef.current = rec;
-    } catch (e) {
-      console.warn("PCM Mic recorder failed, relying on WebSpeech:", e);
     }
   }, [initPlaybackContext, spokenAudioPlaying]);
 

@@ -284,6 +284,11 @@ async def websocket_endpoint(websocket: WebSocket):
             elif msg_type == "STOP_RECORDING":
                 logger.info("Audio recording session stopped by client.")
                 if active_stt_client:
+                    # Run backend STT transcription (Groq Whisper / Vosk) if not already transcribed
+                    if not session_had_client_transcript:
+                        transcribed = await active_stt_client.finish_and_transcribe()
+                        if transcribed:
+                            await process_incoming_transcript(transcribed, source=active_stt_client.last_stt_source)
                     await active_stt_client.disconnect()
                     active_stt_client = None
 

@@ -391,16 +391,16 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
         </div>
       </div>
 
-      {/* Bottom Half: Tactile Itemized Smart Kirana Receipt Card */}
-      <div className="glass-panel p-6 relative overflow-hidden flex flex-col flex-1 shadow-2xl">
+      {/* Main Stage: Itemized Smart Kirana Receipt Card */}
+      <div className="glass-panel p-5 relative overflow-hidden flex flex-col shadow-2xl">
         {/* Subtle Watermark Receipt Icon */}
-        <Receipt className="absolute -bottom-8 -right-8 h-40 w-40 text-white/[0.02] pointer-events-none rotate-12" />
+        <Receipt className="absolute -bottom-6 -right-6 h-36 w-36 text-white/[0.02] pointer-events-none rotate-12" />
 
         {/* Receipt Header */}
-        <div className="flex items-center justify-between pb-4 border-b border-white/[0.08]">
+        <div className="flex items-center justify-between pb-3 border-b border-white/[0.08] shrink-0">
           <div className="flex items-center gap-3">
-            <div className="h-10 w-10 rounded-2xl bg-gradient-to-tr from-emerald-500/20 to-teal-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shadow-[0_0_15px_rgba(52,211,153,0.15)]">
-              <Store className="h-5 w-5" />
+            <div className="h-9 w-9 rounded-xl bg-gradient-to-tr from-emerald-500/20 to-teal-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shadow-[0_0_15px_rgba(52,211,153,0.15)]">
+              <Store className="h-4 w-4" />
             </div>
             <div>
               <div className="flex items-center gap-2">
@@ -411,7 +411,7 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
                   <Sparkles className="h-2.5 w-2.5" /> AI PARSED
                 </span>
               </div>
-              <p className="text-xs text-white/50">
+              <p className="text-[11px] text-white/50">
                 {selectedCustomer
                   ? "Inspecting customer transaction ledger"
                   : "Automatic quantity default & multi-item calculator"}
@@ -428,7 +428,7 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
             </button>
           ) : (
             <span
-              className={`text-[11px] font-mono font-bold px-2.5 py-1 rounded-lg border ${
+              className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-lg border ${
                 primaryAction.action === "ADD_CREDIT"
                   ? "bg-rose-500/15 border-rose-500/30 text-rose-300"
                   : "bg-emerald-500/15 border-emerald-500/30 text-emerald-300"
@@ -440,7 +440,7 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
         </div>
 
         {/* Customer & Timestamp Info Strip */}
-        <div className="grid grid-cols-2 gap-3 py-3 border-b border-white/[0.06] text-xs">
+        <div className="grid grid-cols-2 gap-3 py-2.5 border-b border-white/[0.06] text-xs shrink-0">
           <div>
             <span className="text-[10px] text-white/40 block font-mono uppercase tracking-wider mb-0.5">
               Customer Profile
@@ -465,8 +465,8 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
 
         {/* If user selected a customer on the left, display their real-time transaction ledger */}
         {selectedCustomer ? (
-          <div className="flex-1 py-4 overflow-y-auto space-y-2 pr-1">
-            <span className="text-[10px] font-mono uppercase tracking-wider text-white/40 block mb-2">
+          <div className="py-3 overflow-y-auto max-h-60 space-y-2 pr-1">
+            <span className="text-[10px] font-mono uppercase tracking-wider text-white/40 block mb-1">
               Past Purchases & Payments
             </span>
             {loadingHistory ? (
@@ -496,26 +496,26 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
           </div>
         ) : (
           /* Itemized Line Items 4-Column Table: ITEM | QTY | RATE (₹) | TOTAL (₹) */
-          <div className="flex-1 py-3 flex flex-col justify-start min-h-0">
-            <div className="grid grid-cols-12 text-[10px] font-mono uppercase tracking-wider text-white/40 pb-2 border-b border-white/[0.04] shrink-0">
+          <div className="py-2.5 flex flex-col justify-start">
+            <div className="grid grid-cols-12 text-[10px] font-mono uppercase tracking-wider text-white/40 pb-1.5 border-b border-white/[0.04] shrink-0">
               <span className="col-span-5">Item</span>
               <span className="col-span-2 text-center">Qty</span>
               <span className="col-span-2 text-right">Rate (₹)</span>
               <span className="col-span-3 text-right">Total (₹)</span>
             </div>
 
-            {/* Scrollable line-items container so long bills can scroll smoothly */}
-            <div className="space-y-2 pt-2 overflow-y-auto max-h-56 pr-1">
+            {/* Scrollable line-items container */}
+            <div className="space-y-1.5 pt-1.5 overflow-y-auto max-h-48 pr-1">
               <AnimatePresence>
                 {lineItems.map((item, idx) => (
                   <motion.div
                     key={`${item.name}-${idx}`}
-                    initial={{ opacity: 0, y: 6 }}
+                    initial={{ opacity: 0, y: 4 }}
                     animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: idx * 0.04 }}
-                    className="grid grid-cols-12 items-center text-xs py-1.5 hover:bg-white/[0.02] rounded px-1 -mx-1 transition-colors"
+                    transition={{ delay: idx * 0.03 }}
+                    className="grid grid-cols-12 items-center text-xs py-1 hover:bg-white/[0.02] rounded px-1 -mx-1 transition-colors"
                   >
-                    <div className="col-span-5 flex items-center gap-2 truncate">
+                    <div className="col-span-5 flex items-center gap-1.5 truncate">
                       <span className="h-1.5 w-1.5 rounded-full bg-emerald-400/80 shrink-0" />
                       <span className="text-white/90 font-medium truncate">{item.name}</span>
                     </div>
@@ -534,11 +534,11 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
             </div>
 
             {/* Dashed divider */}
-            <div className="my-3 border-b border-dashed border-white/15 shrink-0" />
+            <div className="my-2.5 border-b border-dashed border-white/15 shrink-0" />
 
             {/* Grand Total Footer */}
             <div className="space-y-1 text-xs shrink-0">
-              <div className="flex justify-between items-baseline pt-1">
+              <div className="flex justify-between items-baseline pt-0.5">
                 <div>
                   <span className="text-xs font-bold text-white tracking-wide block">
                     Grand Total (Kul Rashi)
@@ -557,14 +557,14 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
 
         {/* Action Buttons: Save to Khata & Clear */}
         {!selectedCustomer && (
-          <div className="pt-4 border-t border-white/[0.08] flex items-center gap-3">
+          <div className="pt-3 border-t border-white/[0.08] flex items-center gap-3 shrink-0">
             <button
               onClick={() => {
                 setConfirmed(true);
                 if (onConfirmAction) onConfirmAction(primaryAction);
               }}
               disabled={confirmed}
-              className={`flex-1 py-3 px-4 rounded-2xl font-bold text-xs tracking-wide flex items-center justify-center gap-2 transition-all shadow-lg ${
+              className={`flex-1 py-2.5 px-4 rounded-2xl font-bold text-xs tracking-wide flex items-center justify-center gap-2 transition-all shadow-lg ${
                 confirmed
                   ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 cursor-default"
                   : "bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 shadow-emerald-500/25 active:scale-95"
@@ -583,7 +583,7 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
 
             <button
               onClick={() => setConfirmed(false)}
-              className="px-4 py-3 rounded-2xl bg-white/[0.04] hover:bg-rose-500/10 border border-white/[0.08] hover:border-rose-500/30 text-white/50 hover:text-rose-400 text-xs font-semibold flex items-center gap-1.5 transition-all"
+              className="px-4 py-2.5 rounded-2xl bg-white/[0.04] hover:bg-rose-500/10 border border-white/[0.08] hover:border-rose-500/30 text-white/50 hover:text-rose-400 text-xs font-semibold flex items-center gap-1.5 transition-all"
               title="Clear Entry"
             >
               <RotateCcw className="h-3.5 w-3.5" />
