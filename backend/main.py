@@ -320,6 +320,57 @@ async def websocket_endpoint(websocket: WebSocket):
 
         responses_text = []
         for action in intent_res.actions:
+            # If user asks to GENERATE_BILL for a customer, fetch all past credit transactions,
+            # itemize them, and send a structured bill directly to the UI!
+            if action.action.upper() == "GENERATE_BILL":
+                cust_name = action.customer or ""
+                candidates = await ledger_manager.find_customers_by_name(cust_name)
+                if candidates:
+                    target_cust = candidates[0]
+                    txs = await ledger_manager.get_customer_transactions(target_cust["id"], limit=50)
+                    credit_txs = [t for t in txs if t["type"] == "CREDIT"]
+                    
+                    bill_items = []
+                    for t in credit_txs:
+                        note = t.get("notes") or ""
+                        amt = t.get("amount") or 0.0
+                        # Check for pattern like "10 packet Maggi (10rs each), 10 packet Maida"
+                        parts = [p.strip() for p in note.replace("khareede.", "").replace("khareede", "").split(",") if p.strip()]
+                        for p in parts:
+                            p_clean = p.replace("Mukesh Patel ne", "").replace("ne", "").strip()
+                            if p_clean:
+                                bill_items.append(LineItem(
+                                    name=p_clean,
+                                    qty=1.0,
+                                    unit="lot",
+                                    unit_price=float(amt) if len(parts) == 1 else round(float(amt) / len(parts), 2),
+                                    total=float(amt) if len(parts) == 1 else round(float(amt) / len(parts), 2)
+                                ))
+                    
+                    if not bill_items:
+                        bill_items = [
+                            LineItem(name="All Past Kirana Items", qty=1.0, unit="lot", unit_price=target_cust["total_balance"], total=target_cust["total_balance"])
+                        ]
+
+                    bill_action = ActionItem(
+                        action="GENERATE_BILL",
+                        customer=target_cust["name"],
+                        amount=target_cust["total_balance"],
+                        notes="Itemized Bill Calculation",
+                        items=bill_items
+                    )
+                    
+                    # Update intent_res with the populated items and re-dispatch
+                    intent_res.actions = [bill_action]
+                    await websocket.send_text(json.dumps({
+                        "type": "INTENT_EXTRACTED",
+                        "payload": intent_res.model_dump()
+                    }))
+
+                    spoken_reply = f"{target_cust['name']} ka total bill ready hai. Kul rashi {int(target_cust['total_balance'])} rupaye hai."
+                    responses_text.append(spoken_reply)
+                    continue
+
             spoken_part, status, is_new = await process_action_item(action)
             responses_text.append(spoken_part)
 
