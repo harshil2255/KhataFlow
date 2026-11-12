@@ -66,8 +66,12 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
 }) => {
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [confirmed, setConfirmed] = useState(false);
-  const [customerTxHistory, setCustomerTxHistory] = useState<any[]>([]);
-  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [customerBill, setCustomerBill] = useState<{
+    customer: string;
+    amount: number;
+    items: LineItem[];
+  } | null>(null);
+  const [loadingBill, setLoadingBill] = useState(false);
 
   useEffect(() => {
     setConfirmed(false);
@@ -75,14 +79,34 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
 
   useEffect(() => {
     if (selectedCustomer) {
-      setLoadingHistory(true);
-      fetch(`http://localhost:8000/api/customers/${selectedCustomer.id}/transactions`)
+      setLoadingBill(true);
+      fetch(`http://localhost:8000/api/customers/${selectedCustomer.id}/bill`)
         .then((res) => res.json())
-        .then((data) => setCustomerTxHistory(data.transactions || []))
-        .catch(() => setCustomerTxHistory([]))
-        .finally(() => setLoadingHistory(false));
+        .then((data) => {
+          setCustomerBill({
+            customer: data.customer || selectedCustomer.name,
+            amount: data.amount ?? selectedCustomer.total_balance,
+            items: data.items || [],
+          });
+        })
+        .catch(() => {
+          setCustomerBill({
+            customer: selectedCustomer.name,
+            amount: selectedCustomer.total_balance,
+            items: [
+              {
+                name: "Kirana Items",
+                qty: 1,
+                unit: "lot",
+                unit_price: selectedCustomer.total_balance,
+                total: selectedCustomer.total_balance,
+              },
+            ],
+          });
+        })
+        .finally(() => setLoadingBill(false));
     } else {
-      setCustomerTxHistory([]);
+      setCustomerBill(null);
     }
   }, [selectedCustomer]);
 
@@ -106,8 +130,12 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
     };
   }, [payload]);
 
-  // Live itemized line items calculated as soon as you speak
+  // Live itemized line items: when a customer is clicked, display their real parsed bill items
   const lineItems: LineItem[] = useMemo(() => {
+    if (selectedCustomer && customerBill?.items && customerBill.items.length > 0) {
+      return customerBill.items;
+    }
+
     if (primaryAction.items && primaryAction.items.length > 0) {
       return primaryAction.items;
     }
@@ -138,18 +166,21 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
       if (items.length > 0) return items;
     }
 
-    const tot = primaryAction.amount || 430;
+    const tot = selectedCustomer ? selectedCustomer.total_balance : primaryAction.amount || 430;
     return [
       { name: "Kirana Items", qty: 1, unit: "lot", unit_price: tot, total: tot }
     ];
-  }, [primaryAction, transcript]);
+  }, [primaryAction, transcript, selectedCustomer, customerBill]);
 
   const grandTotal = useMemo(() => {
+    if (selectedCustomer && customerBill) {
+      return customerBill.amount;
+    }
     if (lineItems.length > 0) {
       return lineItems.reduce((acc, curr) => acc + (curr.total || 0), 0);
     }
     return primaryAction.amount || 430;
-  }, [lineItems, primaryAction]);
+  }, [lineItems, primaryAction, selectedCustomer, customerBill]);
 
   // Multi-frequency Audio Equalizer Waveform
   useEffect(() => {
@@ -402,48 +433,21 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
           </div>
         </div>
 
-        {/* If user selected a customer on the left, display their transaction ledger */}
-        {selectedCustomer ? (
-          <div className="py-3 overflow-y-auto max-h-56 space-y-2 pr-1">
-            <span className="text-[10px] font-mono uppercase tracking-wider text-white/40 block mb-1">
-              Past Purchases & Payments
-            </span>
-            {loadingHistory ? (
-              <p className="text-xs text-white/40 py-4 text-center">Loading transactions...</p>
-            ) : customerTxHistory.length === 0 ? (
-              <p className="text-xs text-white/40 py-4 text-center">No past transactions found.</p>
-            ) : (
-              customerTxHistory.map((tx) => (
-                <div
-                  key={tx.id}
-                  className="p-2.5 rounded-xl bg-white/[0.02] border border-white/[0.05] flex items-center justify-between text-xs"
-                >
-                  <div>
-                    <span className="text-white/90 font-medium block">{tx.notes || "Kirana Samaan"}</span>
-                    <span className="text-[10px] text-white/40 font-mono">{tx.created_at}</span>
-                  </div>
-                  <span
-                    className={`font-mono font-bold tabular-nums text-sm ${
-                      tx.type === "CREDIT" ? "text-rose-400" : "text-emerald-400"
-                    }`}
-                  >
-                    {tx.type === "CREDIT" ? "+" : "-"}₹{tx.amount}
-                  </span>
-                </div>
-              ))
-            )}
+        {/* Itemized Line Items Table (Always visible for live speech or selected customer) */}
+        <div className="py-2.5 flex flex-col justify-start">
+          <div className="grid grid-cols-12 text-[10px] font-mono uppercase tracking-wider text-white/40 pb-1.5 border-b border-white/[0.04] shrink-0">
+            <span className="col-span-5">Item</span>
+            <span className="col-span-2 text-center">Qty</span>
+            <span className="col-span-2 text-right">Rate (₹)</span>
+            <span className="col-span-3 text-right">Total (₹)</span>
           </div>
-        ) : (
-          /* Itemized Line Items Table */
-          <div className="py-2.5 flex flex-col justify-start">
-            <div className="grid grid-cols-12 text-[10px] font-mono uppercase tracking-wider text-white/40 pb-1.5 border-b border-white/[0.04] shrink-0">
-              <span className="col-span-5">Item</span>
-              <span className="col-span-2 text-center">Qty</span>
-              <span className="col-span-2 text-right">Rate (₹)</span>
-              <span className="col-span-3 text-right">Total (₹)</span>
-            </div>
 
-            <div className="space-y-1.5 pt-1.5 overflow-y-auto max-h-40 pr-1">
+          <div className="space-y-1.5 pt-1.5 overflow-y-auto max-h-40 pr-1">
+            {loadingBill ? (
+              <div className="py-6 text-center text-xs text-white/40">Loading customer bill...</div>
+            ) : lineItems.length === 0 ? (
+              <div className="py-6 text-center text-xs text-white/40">No items on this bill.</div>
+            ) : (
               <AnimatePresence>
                 {lineItems.map((item, idx) => (
                   <motion.div
@@ -469,27 +473,29 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
                   </motion.div>
                 ))}
               </AnimatePresence>
-            </div>
+            )}
+          </div>
 
-            <div className="my-2.5 border-b border-dashed border-white/15 shrink-0" />
+          <div className="my-2.5 border-b border-dashed border-white/15 shrink-0" />
 
-            <div className="space-y-1 text-xs shrink-0">
-              <div className="flex justify-between items-baseline pt-0.5">
-                <div>
-                  <span className="text-xs font-bold text-white tracking-wide block">
-                    Grand Total (Kul Rashi)
-                  </span>
-                  <span className="text-[10px] text-white/40">
-                    Added to Customer Ledger Balance
-                  </span>
-                </div>
-                <span className="text-2xl font-extrabold font-mono text-emerald-400 tabular-nums">
-                  ₹{grandTotal.toLocaleString("en-IN")}
+          <div className="space-y-1 text-xs shrink-0">
+            <div className="flex justify-between items-baseline pt-0.5">
+              <div>
+                <span className="text-xs font-bold text-white tracking-wide block">
+                  Grand Total (Kul Rashi)
+                </span>
+                <span className="text-[10px] text-white/40">
+                  {selectedCustomer
+                    ? `Kul Baaki for ${selectedCustomer.name}`
+                    : "Added to Customer Ledger Balance"}
                 </span>
               </div>
+              <span className="text-2xl font-extrabold font-mono text-emerald-400 tabular-nums">
+                ₹{grandTotal.toLocaleString("en-IN")}
+              </span>
             </div>
           </div>
-        )}
+        </div>
 
         {/* Action Buttons */}
         {!selectedCustomer && (

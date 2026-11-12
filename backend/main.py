@@ -20,6 +20,7 @@ from backend.services.intent_engine import IntentEngine
 from backend.services.gnani_stt import GnaniSTTClient, vosk_available
 from backend.services.edge_tts_service import EdgeTTSClient
 from backend.database.models import ActionItem, LineItem, IntentResponse
+from backend.services.item_parser import extract_line_items_from_history
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
 logger = logging.getLogger("KhataFlowBackend")
@@ -86,6 +87,27 @@ async def get_ledger():
 async def get_customer_txs(customer_id: int):
     txs = await ledger_manager.get_customer_transactions(customer_id)
     return {"transactions": txs}
+
+@app.get("/api/customers/{customer_id}/bill")
+async def get_customer_bill(customer_id: int):
+    async with aiosqlite.connect(ledger_manager.db_path) as db:
+        db.row_factory = aiosqlite.Row
+        async with db.execute("SELECT * FROM customers WHERE id = ?", (customer_id,)) as cursor:
+            row = await cursor.fetchone()
+            if not row:
+                raise HTTPException(status_code=404, detail="Customer not found")
+            cust = dict(row)
+    
+    txs = await ledger_manager.get_customer_transactions(customer_id, limit=100)
+    parsed_items = extract_line_items_from_history(txs, cust["total_balance"])
+    
+    return {
+        "customer": cust["name"],
+        "customer_id": cust["id"],
+        "phone": cust["phone"],
+        "amount": cust["total_balance"],
+        "items": parsed_items
+    }
 
 class CreateCustomerRequest(BaseModel):
     name: str
@@ -327,25 +349,19 @@ async def websocket_endpoint(websocket: WebSocket):
                 candidates = await ledger_manager.find_customers_by_name(cust_name)
                 if candidates:
                     target_cust = candidates[0]
-                    txs = await ledger_manager.get_customer_transactions(target_cust["id"], limit=50)
-                    credit_txs = [t for t in txs if t["type"] == "CREDIT"]
+                    txs = await ledger_manager.get_customer_transactions(target_cust["id"], limit=100)
                     
-                    bill_items = []
-                    for t in credit_txs:
-                        note = t.get("notes") or ""
-                        amt = t.get("amount") or 0.0
-                        # Check for pattern like "10 packet Maggi (10rs each), 10 packet Maida"
-                        parts = [p.strip() for p in note.replace("khareede.", "").replace("khareede", "").split(",") if p.strip()]
-                        for p in parts:
-                            p_clean = p.replace("Mukesh Patel ne", "").replace("ne", "").strip()
-                            if p_clean:
-                                bill_items.append(LineItem(
-                                    name=p_clean,
-                                    qty=1.0,
-                                    unit="lot",
-                                    unit_price=float(amt) if len(parts) == 1 else round(float(amt) / len(parts), 2),
-                                    total=float(amt) if len(parts) == 1 else round(float(amt) / len(parts), 2)
-                                ))
+                    extracted_dict_items = extract_line_items_from_history(txs, target_cust["total_balance"])
+                    bill_items = [
+                        LineItem(
+                            name=it["name"],
+                            qty=it["qty"],
+                            unit=it.get("unit", "pkt"),
+                            unit_price=it["unit_price"],
+                            total=it["total"]
+                        )
+                        for it in extracted_dict_items
+                    ]
                     
                     if not bill_items:
                         bill_items = [
