@@ -110,75 +110,95 @@ export default function Home() {
   // Setup WebSocket connection to FastAPI backend
   useEffect(() => {
     let unmounted = false;
-    const wsUrl = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8000/ws";
-    const ws = new WebSocket(wsUrl);
-    socketRef.current = ws;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
-    ws.onopen = () => {
+    const connectWebSocket = () => {
       if (unmounted) return;
-      setIsConnected(true);
-      console.log("KhataFlow Spatial WebSocket connected");
-    };
+      const wsUrl = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8000/ws";
+      const ws = new WebSocket(wsUrl);
+      socketRef.current = ws;
 
-    ws.onmessage = (event) => {
-      if (unmounted) return;
-      try {
-        const msg = JSON.parse(event.data);
+      ws.onopen = () => {
+        if (unmounted) return;
+        setIsConnected(true);
+        console.log("KhataFlow Spatial WebSocket connected");
+      };
 
-        if (msg.type === "INITIAL_STATE" || msg.type === "LEDGER_UPDATE") {
-          const nextCustomers: Customer[] = msg.data.customers || [];
-          const nextTransactions: Transaction[] = msg.data.transactions || [];
+      ws.onmessage = (event) => {
+        if (unmounted) return;
+        try {
+          const msg = JSON.parse(event.data);
 
-          if (msg.type === "LEDGER_UPDATE") {
-            const previous = new Map(customersRef.current.map((c) => [c.id, c]));
-            const changed = nextCustomers.find((c) => {
-              const prev = previous.get(c.id);
-              return !prev || prev.total_balance !== c.total_balance;
-            });
-            if (changed) markHighlight(changed.id);
-          }
+          if (msg.type === "INITIAL_STATE" || msg.type === "LEDGER_UPDATE") {
+            const nextCustomers: Customer[] = msg.data.customers || [];
+            const nextTransactions: Transaction[] = msg.data.transactions || [];
 
-          customersRef.current = nextCustomers;
-          setCustomers(nextCustomers);
-          setTransactions(nextTransactions);
-        } else if (msg.type === "TRANSCRIPT_STREAM") {
-          setTranscript(msg.text || "");
-          setIsFinalTranscript(!!msg.is_final);
-        } else if (msg.type === "INTENT_EXTRACTED") {
-          setExtractedPayload(msg.payload);
-        } else if (msg.type === "LATENCY_METRIC") {
-          setTtfaLatencyMs(msg.ttfa_ms);
-        } else if (msg.type === "AUDIO_RESPONSE_CHUNK") {
-          initPlaybackContext();
-          void playAudioChunk(msg.audio_base64);
-        } else if (msg.type === "AUDIO_RESPONSE_COMPLETE") {
-          if (drainTimerRef.current) clearTimeout(drainTimerRef.current);
-          const ctx = audioContextRef.current;
-          const remainingMs = ctx ? Math.max(0, (nextPlayTimeRef.current - ctx.currentTime) * 1000) : 0;
-          drainTimerRef.current = setTimeout(() => {
-            setSpokenAudioPlaying(false);
-            nextPlayTimeRef.current = 0;
-            // Full-Duplex phone call: if call is still active, listen for next turn!
-            if (callActiveRef.current && recognitionRef.current) {
-              try {
-                recognitionRef.current.start();
-              } catch (e) {}
+            if (msg.type === "LEDGER_UPDATE") {
+              const previous = new Map(customersRef.current.map((c) => [c.id, c]));
+              const changed = nextCustomers.find((c) => {
+                const prev = previous.get(c.id);
+                return !prev || prev.total_balance !== c.total_balance;
+              });
+              if (changed) markHighlight(changed.id);
             }
-          }, remainingMs + 200);
+
+            customersRef.current = nextCustomers;
+            setCustomers(nextCustomers);
+            setTransactions(nextTransactions);
+          } else if (msg.type === "TRANSCRIPT_STREAM") {
+            setTranscript(msg.text || "");
+            setIsFinalTranscript(!!msg.is_final);
+          } else if (msg.type === "INTENT_EXTRACTED") {
+            setExtractedPayload(msg.payload);
+          } else if (msg.type === "LATENCY_METRIC") {
+            setTtfaLatencyMs(msg.ttfa_ms);
+          } else if (msg.type === "AUDIO_RESPONSE_CHUNK") {
+            initPlaybackContext();
+            void playAudioChunk(msg.audio_base64);
+          } else if (msg.type === "AUDIO_RESPONSE_COMPLETE") {
+            if (drainTimerRef.current) clearTimeout(drainTimerRef.current);
+            const ctx = audioContextRef.current;
+            const remainingMs = ctx ? Math.max(0, (nextPlayTimeRef.current - ctx.currentTime) * 1000) : 0;
+            drainTimerRef.current = setTimeout(() => {
+              setSpokenAudioPlaying(false);
+              nextPlayTimeRef.current = 0;
+              // Full-Duplex phone call: if call is still active, listen for next turn!
+              if (callActiveRef.current && recognitionRef.current) {
+                try {
+                  recognitionRef.current.start();
+                } catch (e) {}
+              }
+            }, remainingMs + 200);
+          }
+        } catch (e) {
+          console.error("Error parsing WS message:", e);
         }
-      } catch (e) {
-        console.error("Error parsing WS message:", e);
-      }
+      };
+
+      ws.onclose = () => {
+        if (unmounted) return;
+        setIsConnected(false);
+        // Automatic reconnection every 2.5s if server restarts
+        reconnectTimer = setTimeout(connectWebSocket, 2500);
+      };
+
+      ws.onerror = () => {
+        try {
+          ws.close();
+        } catch (e) {}
+      };
     };
 
-    ws.onclose = () => {
-      if (unmounted) return;
-      setIsConnected(false);
-    };
+    connectWebSocket();
 
     return () => {
       unmounted = true;
-      if (ws.readyState === WebSocket.OPEN) ws.close();
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      if (socketRef.current) {
+        if (socketRef.current.readyState === WebSocket.OPEN || socketRef.current.readyState === WebSocket.CONNECTING) {
+          socketRef.current.close();
+        }
+      }
       if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
       if (drainTimerRef.current) clearTimeout(drainTimerRef.current);
     };

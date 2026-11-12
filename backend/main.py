@@ -258,10 +258,10 @@ async def websocket_endpoint(websocket: WebSocket):
                 session_had_client_transcript = False
                 logger.info("Audio recording session started by client.")
 
-                async def stt_callback(data: Dict[str, Any]):
+                active_stt_client = GnaniSTTClient()
+
+                async def on_gnani_transcript(text: str, is_final: bool):
                     nonlocal session_had_client_transcript
-                    text = data.get("text", "")
-                    is_final = data.get("is_final", False)
                     if text:
                         session_had_client_transcript = True
                         await websocket.send_text(json.dumps({
@@ -273,14 +273,13 @@ async def websocket_endpoint(websocket: WebSocket):
                         if is_final:
                             await process_incoming_transcript(text, source="gnani")
 
-                active_stt_client = GnaniSTTClient(callback=stt_callback)
-                await active_stt_client.connect()
+                await active_stt_client.connect(on_gnani_transcript)
 
             elif msg_type == "AUDIO_CHUNK":
                 chunk_b64 = msg.get("chunk", "")
                 if chunk_b64 and active_stt_client:
                     pcm_bytes = base64.b64decode(chunk_b64)
-                    await active_stt_client.send_audio(pcm_bytes)
+                    await active_stt_client.send_pcm_chunk(pcm_bytes)
 
             elif msg_type == "STOP_RECORDING":
                 logger.info("Audio recording session stopped by client.")

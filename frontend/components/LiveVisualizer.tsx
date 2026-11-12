@@ -134,17 +134,48 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
     };
   }, [payload]);
 
-  // Parse itemized lines ensuring strict quantity rule
+  // Fallback / real-time line items parsed directly from speech if LLM is streaming
   const lineItems: LineItem[] = useMemo(() => {
+    // 1. If LLM extracted structured items, use them
     if (primaryAction.items && primaryAction.items.length > 0) {
       return primaryAction.items;
     }
-    const tot = primaryAction.amount || 250;
+
+    // 2. Real-time client-side live extraction as soon as the user speaks!
+    const activeText = transcript || primaryAction.notes || "";
+    if (activeText) {
+      const items: LineItem[] = [];
+      const matches = Array.from(
+        activeText.matchAll(/(\d+)\s*(?:(?:rs|rupaye|rupees|ka|ki)\s*)?([a-zA-Z\u0900-\u097F\s]+)/gi)
+      );
+
+      for (const m of matches) {
+        const price = parseFloat(m[1]);
+        const rawName = m[2]
+          .replace(/\b(kharidi|kharida|udhaar|likh|likho|aur|and|mein|me|dalo|do|to|total|bhai|rupaye|rs)\b/gi, "")
+          .trim();
+        if (rawName.length >= 2) {
+          items.push({
+            name: rawName.charAt(0).toUpperCase() + rawName.slice(1),
+            qty: 1,
+            unit: "pkt",
+            unit_price: price,
+            total: price,
+          });
+        }
+      }
+
+      if (items.length > 0) {
+        return items;
+      }
+    }
+
+    // Default placeholder bill line items
     return [
       { name: "Maida (Flour)", qty: 1, unit: "pkt", unit_price: 200, total: 200 },
-      { name: "Maggi Noodles", qty: 1, unit: "pkt", unit_price: 50, total: 50 },
+      { name: "Maggi 2-Minute Noodles", qty: 1, unit: "pkt", unit_price: 50, total: 50 },
     ];
-  }, [primaryAction]);
+  }, [primaryAction, transcript]);
 
   const grandTotal = useMemo(() => {
     if (lineItems.length > 0) {
@@ -465,23 +496,24 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
           </div>
         ) : (
           /* Itemized Line Items 4-Column Table: ITEM | QTY | RATE (₹) | TOTAL (₹) */
-          <div className="flex-1 py-4 flex flex-col justify-start">
-            <div className="grid grid-cols-12 text-[10px] font-mono uppercase tracking-wider text-white/40 pb-2 border-b border-white/[0.04]">
+          <div className="flex-1 py-3 flex flex-col justify-start min-h-0">
+            <div className="grid grid-cols-12 text-[10px] font-mono uppercase tracking-wider text-white/40 pb-2 border-b border-white/[0.04] shrink-0">
               <span className="col-span-5">Item</span>
               <span className="col-span-2 text-center">Qty</span>
               <span className="col-span-2 text-right">Rate (₹)</span>
               <span className="col-span-3 text-right">Total (₹)</span>
             </div>
 
-            <div className="space-y-2.5 pt-2.5">
+            {/* Scrollable line-items container so long bills can scroll smoothly */}
+            <div className="space-y-2 pt-2 overflow-y-auto max-h-56 pr-1">
               <AnimatePresence>
                 {lineItems.map((item, idx) => (
                   <motion.div
                     key={`${item.name}-${idx}`}
                     initial={{ opacity: 0, y: 6 }}
                     animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: idx * 0.05 }}
-                    className="grid grid-cols-12 items-center text-xs py-1 hover:bg-white/[0.02] rounded px-1 -mx-1 transition-colors"
+                    transition={{ delay: idx * 0.04 }}
+                    className="grid grid-cols-12 items-center text-xs py-1.5 hover:bg-white/[0.02] rounded px-1 -mx-1 transition-colors"
                   >
                     <div className="col-span-5 flex items-center gap-2 truncate">
                       <span className="h-1.5 w-1.5 rounded-full bg-emerald-400/80 shrink-0" />
@@ -502,10 +534,10 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
             </div>
 
             {/* Dashed divider */}
-            <div className="my-4 border-b border-dashed border-white/15" />
+            <div className="my-3 border-b border-dashed border-white/15 shrink-0" />
 
-            {/* Grand Total */}
-            <div className="space-y-1.5 text-xs">
+            {/* Grand Total Footer */}
+            <div className="space-y-1 text-xs shrink-0">
               <div className="flex justify-between items-baseline pt-1">
                 <div>
                   <span className="text-xs font-bold text-white tracking-wide block">
