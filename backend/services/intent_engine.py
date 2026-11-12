@@ -36,6 +36,9 @@ Supported actions:
    - "Mukesh Patel ke khate me 500 ka tel likh do"
 5. "RECORD_PAYMENT": Customer paid money / jama kiya.
    Examples: "kal 200 diya tha", "रमेश ने 350 रुपये नकद जमा कर दिए"
+   - Special Rule for "pura udhaar chuka diya / poora hisaab clear kar diya / pura chukta":
+     If the user says "pura udhaar chuka diya", "sab chukta kar diya", "poora hisaab chuka diya", or says to clear all debt WITHOUT mentioning an exact amount:
+     Set action: "RECORD_PAYMENT", customer: "<Customer Name>", notes: "Pura udhaar chuka diya (Full Settle)", amount: null, target: "clear_all".
 6. "QUERY_BALANCE": User asking about balance.
    Examples: "Ramesh ka total kitna baaki hai?", "रमेश का कितना बाकी है?", "aaj kitna udhaar gaya?"
 7. "CORRECTION": User correcting a previous number or entry.

@@ -252,9 +252,27 @@ async def process_action_item(action: ActionItem) -> tuple[str, str, bool]:
             customer, is_new_cust = await ledger_manager.get_or_create_customer(cust_name, action.phone)
             logger.info(f"Created customer profile: {customer['name']}")
 
-        amt = action.amount or 0.0
+        # If user says "pura udhaar chuka diya" (amount is None or target is "clear_all" or note indicates full clear)
+        # Settle the customer's full outstanding balance!
+        is_full_clear = (
+            action.target == "clear_all" or
+            action.amount is None or
+            any(w in (action.notes or "").lower() for w in ["full balance", "pura udhaar", "poora udhaar", "full settle", "chukta"])
+        )
+
+        if act == "RECORD_PAYMENT" and (action.amount is None or action.amount == 0.0 or is_full_clear):
+            curr_bal = customer.get("total_balance", 0.0)
+            if curr_bal > 0:
+                amt = curr_bal
+                note = "Pura Udhaar Chukta (Full Settlement)"
+            else:
+                amt = 0.0
+                note = action.notes or "Udhaar chukta"
+        else:
+            amt = action.amount or 0.0
+            note = action.notes or ("Udhaar samaan" if act == "ADD_CREDIT" else "Udhaar chukta")
+
         tx_type = "CREDIT" if act == "ADD_CREDIT" else "PAYMENT"
-        note = action.notes or ("Udhaar samaan" if tx_type == "CREDIT" else "Udhaar chukta")
 
         _, new_balance = await ledger_manager.record_transaction(
             customer_id=customer["id"],
@@ -267,7 +285,12 @@ async def process_action_item(action: ActionItem) -> tuple[str, str, bool]:
         if tx_type == "CREDIT":
             spoken = f"{customer['name']}{new_tag} ka {int(amt)} rupaye udhaar darj ho gaya. Ab total {int(new_balance)} rupaye baaki hai."
         else:
-            spoken = f"{customer['name']} se {int(amt)} rupaye jama ho gaye. Ab total {int(new_balance)} rupaye baaki hai."
+            if amt > 0 and new_balance == 0:
+                spoken = f"{customer['name']} ka poora udhaar {int(amt)} rupaye chukta ho gaya. Ab khata bilkul chukta (zero) hai."
+            elif amt > 0:
+                spoken = f"{customer['name']} se {int(amt)} rupaye jama ho gaye. Ab total {int(new_balance)} rupaye baaki hai."
+            else:
+                spoken = f"{customer['name']} par koi purana udhaar baaki nahi tha. Khata pehle se chukta hai."
 
         return spoken, "RECORDED", is_new_cust
 
