@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Users,
@@ -8,12 +8,13 @@ import {
   ArrowDownLeft,
   Search,
   Phone,
+  UserPlus,
   Receipt,
   Sparkles,
-  TrendingUp,
   Clock,
-  CheckCircle2,
-  AlertCircle
+  X,
+  ChevronRight,
+  TrendingUp,
 } from "lucide-react";
 
 export interface Customer {
@@ -22,155 +23,163 @@ export interface Customer {
   phone: string | null;
   total_balance: number;
   created_at: string;
+  is_new?: boolean;
 }
 
 export interface Transaction {
   id: number;
   customer_id: number;
-  customer_name?: string;
+  customer_name: string;
   amount: number;
-  type: "CREDIT" | "PAYMENT" | "CORRECTION";
-  notes?: string;
+  type: string;
+  notes: string | null;
   created_at: string;
 }
 
 interface LedgerCardsProps {
   customers: Customer[];
   transactions: Transaction[];
-  lastUpdatedCustomerId?: number | null;
-  onSelectCustomer?: (customer: Customer) => void;
+  lastUpdatedCustomerId: number | null;
+  onCustomerSelect?: (customer: Customer) => void;
+  selectedCustomerId?: number | null;
+  onAddCustomer: (customerData: { name: string; phone: string; opening_balance: number }) => Promise<void>;
 }
-
-const AVATAR_GRADIENTS = [
-  "from-emerald-500/30 to-teal-600/30 text-emerald-300 border-emerald-500/40",
-  "from-violet-500/30 to-purple-600/30 text-purple-300 border-purple-500/40",
-  "from-cyan-500/30 to-blue-600/30 text-cyan-300 border-cyan-500/40",
-  "from-rose-500/30 to-pink-600/30 text-rose-300 border-rose-500/40",
-  "from-amber-500/30 to-orange-600/30 text-amber-300 border-amber-500/40",
-];
 
 export const LedgerCards: React.FC<LedgerCardsProps> = ({
   customers,
   transactions,
   lastUpdatedCustomerId,
-  onSelectCustomer,
+  onCustomerSelect,
+  selectedCustomerId,
+  onAddCustomer,
 }) => {
-  const [searchTerm, setSearchTerm] = useState("");
-  const [filterType, setFilterType] = useState<"ALL" | "CREDIT_ONLY" | "CLEAR_ONLY">("ALL");
+  const [filter, setFilter] = useState<"all" | "credit" | "settled">("all");
+  const [searchQuery, setSearchQuery] = useState("");
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [newName, setNewName] = useState("");
+  const [newPhone, setNewPhone] = useState("");
+  const [newOpeningBal, setNewOpeningBal] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const filteredCustomers = customers.filter((c) => {
-    const matchesSearch =
-      c.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      (c.phone && c.phone.includes(searchTerm));
+  const filteredCustomers = useMemo(() => {
+    return customers.filter((cust) => {
+      const matchesSearch =
+        cust.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (cust.phone && cust.phone.includes(searchQuery));
 
-    if (!matchesSearch) return false;
-    if (filterType === "CREDIT_ONLY") return c.total_balance > 0;
-    if (filterType === "CLEAR_ONLY") return c.total_balance <= 0;
-    return true;
-  });
+      if (!matchesSearch) return false;
+      if (filter === "credit") return cust.total_balance > 0;
+      if (filter === "settled") return cust.total_balance <= 0;
+      return true;
+    });
+  }, [customers, searchQuery, filter]);
+
+  const handleCreateCustomer = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!newName.trim()) return;
+    setIsSubmitting(true);
+    try {
+      await onAddCustomer({
+        name: newName.trim(),
+        phone: newPhone.trim(),
+        opening_balance: parseFloat(newOpeningBal) || 0,
+      });
+      setNewName("");
+      setNewPhone("");
+      setNewOpeningBal("");
+      setIsModalOpen(false);
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   const getMonogram = (name: string) => {
     const parts = name.trim().split(" ");
-    if (parts.length >= 2) {
-      return (parts[0][0] + parts[1][0]).toUpperCase();
-    }
+    if (parts.length >= 2) return `${parts[0][0]}${parts[1][0]}`.toUpperCase();
     return name.slice(0, 2).toUpperCase();
   };
 
   const getAvatarGradient = (id: number) => {
-    return AVATAR_GRADIENTS[id % AVATAR_GRADIENTS.length];
+    const gradients = [
+      "from-rose-500/20 to-orange-500/20 text-rose-300 border-rose-500/30",
+      "from-emerald-500/20 to-teal-500/20 text-emerald-300 border-emerald-500/30",
+      "from-indigo-500/20 to-purple-500/20 text-indigo-300 border-indigo-500/30",
+      "from-amber-500/20 to-yellow-500/20 text-amber-300 border-amber-500/30",
+      "from-cyan-500/20 to-blue-500/20 text-cyan-300 border-cyan-500/30",
+    ];
+    return gradients[id % gradients.length];
   };
 
   return (
-    <div className="flex flex-col h-full bg-[#0B0F19]/60 backdrop-blur-2xl border border-white/[0.08] shadow-[0_8px_32px_rgba(0,0,0,0.6)] rounded-3xl overflow-hidden relative">
-      {/* Top Header & Search Area */}
-      <div className="p-5 pb-3 border-b border-white/[0.06] space-y-4">
-        {/* Title & Quick Stats */}
-        <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="h-8 w-8 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
-              <Users className="h-4 w-4" />
-            </div>
-            <div>
-              <h2 className="text-sm font-semibold tracking-wide text-white">
-                Grahak Khata
-              </h2>
-              <p className="text-[11px] text-slate-400 font-medium">
-                {customers.length} Registered Ledgers
-              </p>
-            </div>
-          </div>
-
-          <div className="text-[11px] font-mono text-slate-400 tabular-nums">
-            Active: <span className="text-emerald-400 font-semibold">{filteredCustomers.length}</span>
-          </div>
-        </div>
-
-        {/* Search Bar + Segmented Tabs */}
-        <div className="space-y-2.5">
-          <div className="relative">
-            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-slate-400" />
+    <div className="h-full flex flex-col space-y-4 select-none relative">
+      {/* Top Search & Action Bar */}
+      <div className="flex flex-col gap-3 shrink-0">
+        <div className="flex items-center gap-2.5">
+          {/* Frosted Search Input */}
+          <div className="relative flex-1">
+            <Search className="absolute left-3.5 top-1/2 -translate-y-1/2 h-4 w-4 text-white/40" />
             <input
               type="text"
               placeholder="Grahak ya phone khojein..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full bg-white/[0.03] border border-white/[0.08] rounded-xl pl-9 pr-3.5 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500/50 focus:ring-1 focus:ring-emerald-500/30 transition-all shadow-[inset_0_1px_2px_rgba(0,0,0,0.4)]"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-10 pr-4 py-2.5 rounded-2xl bg-white/[0.03] hover:bg-white/[0.05] focus:bg-white/[0.07] border border-white/[0.08] focus:border-emerald-500/50 text-white placeholder-white/35 text-xs outline-none transition-all"
             />
           </div>
 
-          {/* Segmented Pill Tabs with Framer Motion layoutId */}
-          <div className="grid grid-cols-3 gap-1 p-1 bg-black/40 border border-white/[0.06] rounded-xl">
-            {(
-              [
-                { id: "ALL", label: "Sabhi" },
-                { id: "CREDIT_ONLY", label: "Udhaar" },
-                { id: "CLEAR_ONLY", label: "Chukta" },
-              ] as const
-            ).map((tab) => {
-              const active = filterType === tab.id;
-              return (
-                <button
-                  key={tab.id}
-                  onClick={() => setFilterType(tab.id)}
-                  className={`relative py-1.5 text-[11px] font-medium rounded-lg transition-colors flex items-center justify-center ${
-                    active ? "text-white" : "text-slate-400 hover:text-slate-200"
-                  }`}
-                >
-                  {active && (
-                    <motion.div
-                      layoutId="activeFilterTab"
-                      className="absolute inset-0 bg-white/[0.09] border border-white/[0.12] rounded-lg shadow-sm"
-                      transition={{ type: "spring", stiffness: 400, damping: 30 }}
-                    />
-                  )}
-                  <span className="relative z-10">{tab.label}</span>
-                </button>
-              );
-            })}
-          </div>
+          {/* + Naya Grahak Button */}
+          <button
+            onClick={() => setIsModalOpen(true)}
+            className="px-3.5 py-2.5 rounded-2xl bg-gradient-to-r from-emerald-500/20 to-teal-500/20 hover:from-emerald-500/30 hover:to-teal-500/30 border border-emerald-500/30 text-emerald-300 text-xs font-semibold flex items-center gap-1.5 transition-all shadow-[0_0_15px_rgba(52,211,153,0.1)] active:scale-95 shrink-0"
+          >
+            <UserPlus className="h-3.5 w-3.5" />
+            <span>+ Naya Grahak</span>
+          </button>
+        </div>
+
+        {/* Sliding Segmented Pill Tabs */}
+        <div className="flex items-center p-1 rounded-2xl bg-black/40 border border-white/[0.06] relative">
+          {(["all", "credit", "settled"] as const).map((tab) => {
+            const labels = {
+              all: `Sabhi (${customers.length})`,
+              credit: `Udhaar (${customers.filter((c) => c.total_balance > 0).length})`,
+              settled: `Chukta (${customers.filter((c) => c.total_balance <= 0).length})`,
+            };
+            const isActive = filter === tab;
+            return (
+              <button
+                key={tab}
+                onClick={() => setFilter(tab)}
+                className={`relative flex-1 py-1.5 text-xs font-medium rounded-xl transition-colors z-10 ${
+                  isActive ? "text-white" : "text-white/40 hover:text-white/70"
+                }`}
+              >
+                {isActive && (
+                  <motion.div
+                    layoutId="activeFilterTab"
+                    className="absolute inset-0 bg-white/[0.08] border border-white/[0.1] rounded-xl shadow-sm"
+                    transition={{ type: "spring", stiffness: 450, damping: 35 }}
+                  />
+                )}
+                <span className="relative z-10">{labels[tab]}</span>
+              </button>
+            );
+          })}
         </div>
       </div>
 
-      {/* Customer List Section */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-2">
-        <AnimatePresence mode="popLayout">
+      {/* Customer Ledger List (Scrollable) */}
+      <div className="flex-1 overflow-y-auto space-y-2.5 pr-1">
+        <AnimatePresence>
           {filteredCustomers.length === 0 ? (
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              className="h-44 flex flex-col items-center justify-center text-center p-6 text-slate-500"
-            >
-              <div className="h-10 w-10 rounded-2xl bg-white/[0.02] border border-white/[0.06] flex items-center justify-center mb-2">
-                <Search className="h-4 w-4 text-slate-600" />
-              </div>
-              <p className="text-xs font-medium text-slate-400">Koi grahak nahi mila</p>
-              <p className="text-[11px] text-slate-600 mt-0.5">Bol kar naya ledger banayein</p>
-            </motion.div>
+            <div className="flex flex-col items-center justify-center h-48 text-center text-white/35">
+              <Users className="h-8 w-8 mb-2 opacity-50" />
+              <p className="text-xs">Koi grahak nahi mila</p>
+            </div>
           ) : (
             filteredCustomers.map((cust) => {
-              const isUpdated = lastUpdatedCustomerId === cust.id;
+              const isUpdated = cust.id === lastUpdatedCustomerId;
+              const isSelected = cust.id === selectedCustomerId;
               const isCredit = cust.total_balance > 0;
               const isAdvance = cust.total_balance < 0;
 
@@ -178,75 +187,72 @@ export const LedgerCards: React.FC<LedgerCardsProps> = ({
                 <motion.div
                   key={cust.id}
                   layout
-                  initial={{ opacity: 0, y: 8 }}
+                  initial={{ opacity: 0, y: 6 }}
                   animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, scale: 0.96 }}
-                  onClick={() => onSelectCustomer?.(cust)}
-                  className={`group relative p-3.5 rounded-2xl border transition-all duration-200 cursor-pointer ${
-                    isUpdated
-                      ? "bg-emerald-500/10 border-emerald-400/60 shadow-[0_0_24px_rgba(16,185,129,0.25)]"
-                      : "bg-[#0E1322]/50 hover:bg-[#141B30]/70 border-white/[0.06] hover:border-white/[0.18] hover:-translate-y-0.5 shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)]"
-                  }`}
+                  exit={{ opacity: 0, scale: 0.98 }}
+                  onClick={() => onCustomerSelect && onCustomerSelect(cust)}
+                  className={`p-3.5 rounded-2xl border transition-all cursor-pointer group relative overflow-hidden ${
+                    isSelected
+                      ? "bg-white/[0.08] border-emerald-500/40 shadow-[0_0_20px_rgba(52,211,153,0.15)]"
+                      : "bg-[#111522]/80 hover:bg-[#151a2b] border-white/[0.08] hover:border-white/20 hover:-translate-y-0.5"
+                  } ${isUpdated ? "ring-2 ring-emerald-400/50" : ""}`}
                 >
-                  <div className="flex items-center justify-between gap-3">
+                  <div className="flex items-center justify-between">
                     {/* Left: Avatar + Details */}
-                    <div className="flex items-center gap-3 min-w-0">
+                    <div className="flex items-center gap-3">
                       <div
-                        className={`h-10 w-10 shrink-0 rounded-xl bg-gradient-to-br border flex items-center justify-center font-bold text-xs tracking-wider ${getAvatarGradient(
+                        className={`h-9 w-9 rounded-xl bg-gradient-to-br ${getAvatarGradient(
                           cust.id
-                        )}`}
+                        )} border flex items-center justify-center font-mono font-bold text-xs shrink-0`}
                       >
                         {getMonogram(cust.name)}
                       </div>
-                      <div className="min-w-0">
+
+                      <div className="flex flex-col">
                         <div className="flex items-center gap-1.5">
-                          <span className="font-semibold text-xs tracking-tight text-white truncate group-hover:text-emerald-300 transition-colors">
+                          <span className="text-xs font-semibold text-white/90 group-hover:text-white">
                             {cust.name}
                           </span>
-                          {isUpdated && (
-                            <span className="flex h-1.5 w-1.5 relative shrink-0">
-                              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-                              <span className="relative inline-flex rounded-full h-1.5 w-1.5 bg-emerald-500"></span>
+                          {cust.is_new && (
+                            <span className="text-[9px] font-mono px-1.5 py-0.2 rounded-full bg-emerald-500/20 border border-emerald-500/30 text-emerald-300 font-semibold">
+                              NEW
                             </span>
                           )}
                         </div>
-                        <div className="flex items-center gap-1 mt-0.5 text-[11px] font-mono text-slate-400">
-                          <Phone className="h-2.5 w-2.5 text-slate-500" />
-                          <span className="tabular-nums tracking-tight">
-                            {cust.phone || "No phone"}
-                          </span>
-                        </div>
+                        <span className="text-[11px] text-white/40 font-mono">
+                          {cust.phone || "No phone linked"}
+                        </span>
                       </div>
                     </div>
 
-                    {/* Right: Currency & Status Pill */}
-                    <div className="text-right shrink-0">
-                      <div
-                        className={`font-mono text-sm font-bold tracking-tight tabular-nums ${
+                    {/* Right: Tabular Balance & Status Badge */}
+                    <div className="flex flex-col items-end">
+                      <span
+                        className={`font-mono font-bold text-sm tabular-nums tracking-tight ${
                           isCredit
                             ? "text-[#FB7185]"
                             : isAdvance
-                            ? "text-[#38BDF8]"
+                            ? "text-sky-300"
                             : "text-[#34D399]"
                         }`}
                       >
-                        ₹{Math.abs(cust.total_balance).toLocaleString("en-IN")}
-                      </div>
-                      <div className="mt-1">
-                        {isCredit ? (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-medium tracking-wide uppercase bg-[#881337]/30 text-[#FB7185] border border-[#FB7185]/30">
-                            Udhaar Baaki
-                          </span>
-                        ) : isAdvance ? (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-medium tracking-wide uppercase bg-sky-950/40 text-sky-400 border border-sky-800/40">
-                            Advance
-                          </span>
-                        ) : (
-                          <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-medium tracking-wide uppercase bg-[#064E3B]/30 text-[#34D399] border border-[#34D399]/30">
-                            Chukta
-                          </span>
-                        )}
-                      </div>
+                        {isCredit
+                          ? `₹${cust.total_balance.toLocaleString("en-IN")}`
+                          : isAdvance
+                          ? `+₹${Math.abs(cust.total_balance).toLocaleString("en-IN")}`
+                          : "₹0"}
+                      </span>
+                      <span
+                        className={`text-[10px] font-mono px-2 py-0.5 rounded-md mt-0.5 ${
+                          isCredit
+                            ? "bg-rose-500/10 text-rose-300 border border-rose-500/20"
+                            : isAdvance
+                            ? "bg-sky-500/10 text-sky-300 border border-sky-500/20"
+                            : "bg-emerald-500/10 text-emerald-300 border border-emerald-500/20"
+                        }`}
+                      >
+                        {isCredit ? "Udhaar Baaki" : isAdvance ? "Advance" : "Chukta"}
+                      </span>
                     </div>
                   </div>
                 </motion.div>
@@ -256,68 +262,142 @@ export const LedgerCards: React.FC<LedgerCardsProps> = ({
         </AnimatePresence>
       </div>
 
-      {/* Bottom Timeline Section: Recent Activity */}
-      <div className="p-4 pt-3 border-t border-white/[0.06] bg-black/30 backdrop-blur-md">
-        <div className="flex items-center justify-between mb-2.5 px-0.5">
-          <div className="flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+      {/* Bottom Section: Compact Activity Timeline */}
+      <div className="glass-panel p-3.5 shrink-0 flex flex-col gap-2">
+        <div className="flex items-center justify-between">
+          <span className="text-[10px] font-mono uppercase tracking-wider text-white/40 flex items-center gap-1.5">
             <Clock className="h-3 w-3 text-emerald-400" />
-            <span>Recent Activity</span>
-          </div>
-          <span className="text-[10px] text-slate-500 font-mono">Live Timeline</span>
+            Recent Khata Feed
+          </span>
+          <span className="text-[10px] text-white/30 font-mono">Real-time</span>
         </div>
 
-        <div className="space-y-1.5 max-h-36 overflow-y-auto pr-0.5">
-          {transactions.length === 0 ? (
-            <div className="text-center py-4 text-[11px] text-slate-500">
-              No recent transactions
-            </div>
-          ) : (
-            transactions.slice(0, 5).map((t) => {
-              const isCredit = t.type === "CREDIT";
-              return (
-                <div
-                  key={t.id}
-                  className="flex items-center justify-between p-2 rounded-xl bg-white/[0.02] border border-white/[0.04] text-xs hover:border-white/[0.08] transition-colors"
+        <div className="space-y-1.5 max-h-28 overflow-y-auto pr-1">
+          {transactions.slice(0, 4).map((tx) => (
+            <div
+              key={tx.id}
+              className="flex items-center justify-between text-xs py-1 px-1.5 rounded-lg bg-white/[0.02] border border-white/[0.04]"
+            >
+              <div className="flex items-center gap-2 truncate">
+                <span
+                  className={`h-4 w-4 rounded-full flex items-center justify-center shrink-0 ${
+                    tx.type === "CREDIT"
+                      ? "bg-rose-500/20 text-rose-400"
+                      : "bg-emerald-500/20 text-emerald-400"
+                  }`}
                 >
-                  <div className="flex items-center gap-2 min-w-0">
-                    <div
-                      className={`h-6 w-6 rounded-lg flex items-center justify-center shrink-0 ${
-                        isCredit
-                          ? "bg-rose-500/10 text-rose-400 border border-rose-500/20"
-                          : "bg-emerald-500/10 text-emerald-400 border border-emerald-500/20"
-                      }`}
-                    >
-                      {isCredit ? (
-                        <ArrowUpRight className="h-3 w-3" />
-                      ) : (
-                        <ArrowDownLeft className="h-3 w-3" />
-                      )}
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-slate-200 font-medium text-[11px] truncate">
-                        {t.customer_name || `Customer #${t.customer_id}`}
-                      </p>
-                      <p className="text-[10px] text-slate-500 truncate max-w-[140px]">
-                        {t.notes || (isCredit ? "Goods on credit" : "Debt repayment")}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="text-right shrink-0">
-                    <span
-                      className={`font-mono text-xs font-bold tabular-nums ${
-                        isCredit ? "text-[#FB7185]" : "text-[#34D399]"
-                      }`}
-                    >
-                      {isCredit ? "+" : "-"}₹{t.amount.toLocaleString("en-IN")}
-                    </span>
-                  </div>
-                </div>
-              );
-            })
-          )}
+                  {tx.type === "CREDIT" ? (
+                    <ArrowUpRight className="h-2.5 w-2.5" />
+                  ) : (
+                    <ArrowDownLeft className="h-2.5 w-2.5" />
+                  )}
+                </span>
+                <span className="text-white/80 font-medium truncate text-[11px]">
+                  {tx.customer_name}
+                </span>
+                <span className="text-white/35 text-[10px] truncate max-w-[120px]">
+                  {tx.notes || "Samaan"}
+                </span>
+              </div>
+              <span
+                className={`font-mono tabular-nums text-[11px] font-semibold ${
+                  tx.type === "CREDIT" ? "text-rose-400" : "text-emerald-400"
+                }`}
+              >
+                {tx.type === "CREDIT" ? "+" : "-"}₹{tx.amount}
+              </span>
+            </div>
+          ))}
         </div>
       </div>
+
+      {/* Glass Popover/Modal for + Naya Grahak */}
+      <AnimatePresence>
+        {isModalOpen && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-md p-4">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              className="glass-modal w-full max-w-sm p-6 relative overflow-hidden"
+            >
+              <div className="flex items-center justify-between pb-3 border-b border-white/[0.08]">
+                <div className="flex items-center gap-2">
+                  <div className="h-7 w-7 rounded-xl bg-emerald-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400">
+                    <UserPlus className="h-4 w-4" />
+                  </div>
+                  <h4 className="text-sm font-bold text-white">Naya Grahak Jodein</h4>
+                </div>
+                <button
+                  onClick={() => setIsModalOpen(false)}
+                  className="h-6 w-6 rounded-lg bg-white/[0.05] hover:bg-white/[0.1] text-white/50 hover:text-white flex items-center justify-center transition-colors"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+
+              <form onSubmit={handleCreateCustomer} className="mt-4 space-y-3.5">
+                <div>
+                  <label className="text-[11px] font-mono uppercase tracking-wider text-white/50 block mb-1">
+                    Grahak Ka Naam *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    placeholder="Jaise: Mohan Lal"
+                    value={newName}
+                    onChange={(e) => setNewName(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-white/[0.04] border border-white/[0.1] text-white text-xs outline-none focus:border-emerald-400"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[11px] font-mono uppercase tracking-wider text-white/50 block mb-1">
+                    Phone Number (Optional)
+                  </label>
+                  <input
+                    type="tel"
+                    placeholder="9876543210"
+                    value={newPhone}
+                    onChange={(e) => setNewPhone(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-white/[0.04] border border-white/[0.1] text-white text-xs outline-none focus:border-emerald-400 font-mono"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-[11px] font-mono uppercase tracking-wider text-white/50 block mb-1">
+                    Shuruwati Udhaar / Opening Balance (₹)
+                  </label>
+                  <input
+                    type="number"
+                    placeholder="0"
+                    value={newOpeningBal}
+                    onChange={(e) => setNewOpeningBal(e.target.value)}
+                    className="w-full px-3 py-2 rounded-xl bg-white/[0.04] border border-white/[0.1] text-white text-xs outline-none focus:border-emerald-400 font-mono"
+                  />
+                </div>
+
+                <div className="pt-2 flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsModalOpen(false)}
+                    className="flex-1 py-2 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] text-white/60 text-xs font-semibold"
+                  >
+                    Radd Karein
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={isSubmitting}
+                    className="flex-1 py-2 rounded-xl bg-gradient-to-r from-emerald-500 to-teal-500 text-slate-950 text-xs font-bold shadow-lg shadow-emerald-500/20 active:scale-95"
+                  >
+                    {isSubmitting ? "Jod Rahe Hain..." : "Khata Banayein"}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 };

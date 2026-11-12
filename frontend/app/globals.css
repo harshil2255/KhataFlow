@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 :root {
-  --background: #05070d;
+  --background: #0a0c12;
   --foreground: #f1f5f9;
 }
 
@@ -13,16 +13,17 @@
 }
 
 body {
-  background-color: #05070d;
+  background-color: #0a0c12;
   color: #f1f5f9;
   font-family: var(--font-sans), system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   overflow: hidden;
+  user-select: none;
 }
 
-/* Custom Scrollbar for Obsidian Glass UI */
+/* Cozy Spatial Glass Scrollbar */
 ::-webkit-scrollbar {
-  width: 5px;
-  height: 5px;
+  width: 4px;
+  height: 4px;
 }
 
 ::-webkit-scrollbar-track {
@@ -30,32 +31,38 @@ body {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.12);
   border-radius: 9999px;
+  transition: background 0.2s ease;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.25);
 }
 
-/* Glass Surface Utilities */
+/* Cozy Futuristic Glass Surfaces */
 .glass-panel {
-  background: rgba(11, 15, 25, 0.75);
-  backdrop-filter: blur(24px);
-  -webkit-backdrop-filter: blur(24px);
+  background: rgba(17, 21, 34, 0.8);
+  backdrop-filter: blur(28px);
+  -webkit-backdrop-filter: blur(28px);
   border: 1px solid rgba(255, 255, 255, 0.08);
-  box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.6), inset 0 1px 0 0 rgba(255, 255, 255, 0.08);
+  border-radius: 1.5rem;
+  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.08), 0 20px 50px rgba(0, 0, 0, 0.6);
 }
 
 .glass-pill {
-  background: rgba(15, 23, 42, 0.65);
+  background: rgba(25, 31, 48, 0.65);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   border: 1px solid rgba(255, 255, 255, 0.08);
   box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.06);
 }
 
-.receipt-sawtooth {
-  background-image: radial-gradient(circle at 10px -5px, transparent 12px, rgba(11, 15, 25, 0.85) 13px);
-  background-size: 20px 20px;
+.glass-modal {
+  background: rgba(15, 19, 32, 0.92);
+  backdrop-filter: blur(36px);
+  -webkit-backdrop-filter: blur(36px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 1.75rem;
+  box-shadow: inset 0 1px 0 0 rgba(255, 255, 255, 0.12), 0 30px 80px rgba(0, 0, 0, 0.8);
 }

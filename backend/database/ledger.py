@@ -95,13 +95,17 @@ class LedgerManager:
                 matches = await cur.fetchall()
                 return [dict(r) for r in matches]
 
-    async def get_or_create_customer(self, name: str, phone: Optional[str] = None) -> Dict[str, Any]:
+    async def get_or_create_customer(self, name: str, phone: Optional[str] = None) -> Tuple[Dict[str, Any], bool]:
+        """
+        Retrieves existing customer or creates a new one.
+        Returns (customer_dict, is_new: bool).
+        """
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
             async with db.execute("SELECT * FROM customers WHERE LOWER(name) = LOWER(?)", (name.strip(),)) as cur:
                 row = await cur.fetchone()
                 if row:
-                    return dict(row)
+                    return dict(row), False
             
             cursor = await db.execute(
                 "INSERT INTO customers (name, phone, total_balance) VALUES (?, ?, 0.0)",
@@ -111,7 +115,21 @@ class LedgerManager:
             new_id = cursor.lastrowid
             async with db.execute("SELECT * FROM customers WHERE id = ?", (new_id,)) as cur:
                 created = await cur.fetchone()
-                return dict(created)
+                return dict(created), True
+
+    async def get_customer_transactions(self, customer_id: int, limit: int = 25) -> List[Dict[str, Any]]:
+        """Returns recent transactions for a specific customer."""
+        async with aiosqlite.connect(self.db_path) as db:
+            db.row_factory = aiosqlite.Row
+            async with db.execute("""
+                SELECT t.id, t.customer_id, t.amount, t.type, t.notes, t.created_at, c.name as customer_name
+                FROM transactions t
+                JOIN customers c ON t.customer_id = c.id
+                WHERE t.customer_id = ?
+                ORDER BY t.id DESC LIMIT ?
+            """, (customer_id, limit)) as cursor:
+                rows = await cursor.fetchall()
+                return [dict(r) for r in rows]
 
     async def record_transaction(self, customer_id: int, amount: float, tx_type: str, notes: str = "") -> Tuple[Dict[str, Any], float]:
         """
