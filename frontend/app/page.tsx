@@ -6,6 +6,7 @@ import { LiveVisualizer, ActionItem } from "@/components/LiveVisualizer";
 import { BillsTab } from "@/components/BillsTab";
 import { AnalyticsTab } from "@/components/AnalyticsTab";
 import { SettingsTab } from "@/components/SettingsTab";
+import { CustomCursor } from "@/components/CustomCursor";
 import { ThemeProvider, useTheme } from "@/context/ThemeContext";
 import { PCMAudioRecorder } from "@/lib/audioRecorder";
 import {
@@ -78,6 +79,23 @@ function KhataFlowDashboard() {
   const nextPlayTimeRef = useRef(0);
   const drainTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Speech pause debouncing & active audio playback source
+  const speechDebounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const bufferedSpeechRef = useRef<string>("");
+  const currentAudioSourceRef = useRef<AudioBufferSourceNode | null>(null);
+
+  const stopActiveSpeechPlayback = useCallback(() => {
+    if (currentAudioSourceRef.current) {
+      try {
+        currentAudioSourceRef.current.stop();
+        currentAudioSourceRef.current.disconnect();
+      } catch (e) {}
+      currentAudioSourceRef.current = null;
+    }
+    setSpokenAudioPlaying(false);
+    nextPlayTimeRef.current = 0;
+  }, []);
+
   const initPlaybackContext = useCallback(() => {
     if (!audioContextRef.current) {
       const AudioCtx =
@@ -108,6 +126,13 @@ function KhataFlowDashboard() {
         const source = ctx.createBufferSource();
         source.buffer = audioBuffer;
         source.connect(ctx.destination);
+        currentAudioSourceRef.current = source;
+        source.onended = () => {
+          if (currentAudioSourceRef.current === source) {
+            currentAudioSourceRef.current = null;
+            setSpokenAudioPlaying(false);
+          }
+        };
 
         const startAt = Math.max(ctx.currentTime + 0.02, nextPlayTimeRef.current);
         source.start(startAt);
@@ -219,6 +244,23 @@ function KhataFlowDashboard() {
     recordingActiveRef.current = false;
     setIsRecording(false);
 
+    if (speechDebounceTimerRef.current) {
+      clearTimeout(speechDebounceTimerRef.current);
+      speechDebounceTimerRef.current = null;
+    }
+
+    // If there is buffered speech when the user presses stop, send it immediately
+    if (bufferedSpeechRef.current && socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+      socketRef.current.send(
+        JSON.stringify({
+          type: "PROCESS_TRANSCRIPT",
+          text: bufferedSpeechRef.current,
+          source: "webspeech_on_stop",
+        })
+      );
+      bufferedSpeechRef.current = "";
+    }
+
     if (recognitionRef.current) {
       try {
         recognitionRef.current.stop();
@@ -237,11 +279,17 @@ function KhataFlowDashboard() {
   }, []);
 
   const startRecording = useCallback(async () => {
+    stopActiveSpeechPlayback();
     initPlaybackContext();
     setIsRecording(true);
     recordingActiveRef.current = true;
     setTranscript("");
     setIsFinalTranscript(false);
+    bufferedSpeechRef.current = "";
+    if (speechDebounceTimerRef.current) {
+      clearTimeout(speechDebounceTimerRef.current);
+      speechDebounceTimerRef.current = null;
+    }
 
     if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
       socketRef.current.send(JSON.stringify({ type: "START_RECORDING" }));
@@ -304,14 +352,25 @@ function KhataFlowDashboard() {
         }
         setIsFinalTranscript(!!finalStr);
 
-        if (finalStr && socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
-          socketRef.current.send(
-            JSON.stringify({
-              type: "PROCESS_TRANSCRIPT",
-              text: finalStr,
-              source: "webspeech",
-            })
-          );
+        // Debounce sending to backend: Kirana shopkeeper pauses 1-2s between items/clauses.
+        // Wait 2200ms of true silence before finalizing turn, so pauses don't cut off speech!
+        if (finalStr) {
+          bufferedSpeechRef.current = finalStr;
+          if (speechDebounceTimerRef.current) {
+            clearTimeout(speechDebounceTimerRef.current);
+          }
+          speechDebounceTimerRef.current = setTimeout(() => {
+            if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN && bufferedSpeechRef.current) {
+              socketRef.current.send(
+                JSON.stringify({
+                  type: "PROCESS_TRANSCRIPT",
+                  text: bufferedSpeechRef.current,
+                  source: "webspeech_debounced",
+                })
+              );
+              bufferedSpeechRef.current = "";
+            }
+          }, 2200);
         }
       };
 
@@ -392,6 +451,9 @@ function KhataFlowDashboard() {
 
   return (
     <div className="relative h-screen w-screen overflow-hidden flex flex-col bg-[#0A0C12] text-white font-sans select-none">
+      {/* Polished Spring Custom Mouse Cursor from invoiceman */}
+      <CustomCursor />
+
       {/* Dynamic Background Layer (Fixed z-0) */}
       <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
         {theme.bgType === "image" && theme.bgUrl ? (
@@ -475,7 +537,7 @@ function KhataFlowDashboard() {
                 />
               </span>
               <span className="text-[11px] text-white/50 font-medium">
-                {isConnected ? "Voice AI Online • Groq • edge-tts" : "Connecting..."}
+                {isConnected ? "Live Ledger Online" : "Connecting..."}
               </span>
             </div>
           </div>
@@ -599,10 +661,10 @@ function KhataFlowDashboard() {
             })}
           </div>
 
-          {/* Bottom Rail Badge: Powered by AI Voice Tech */}
+          {/* Bottom Rail Badge: Live Sync Indicator */}
           <div className="p-2 rounded-2xl bg-white/[0.03] border border-white/[0.06] flex flex-col items-center text-center gap-1 w-full">
             <span className="text-[8px] font-mono uppercase tracking-wider text-white/40 leading-none">
-              AI Voice
+              Live Sync
             </span>
             <div className="flex items-center gap-0.5 h-2">
               <span className="w-0.5 h-2 bg-emerald-400 rounded-full animate-pulse" />

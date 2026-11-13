@@ -11,9 +11,13 @@ import {
   User,
   Radio,
   X,
+  FileText,
+  Mail,
+  ExternalLink,
 } from "lucide-react";
 import { Customer } from "./LedgerCards";
 import { useTheme } from "@/context/ThemeContext";
+import { InvoiceModal } from "./InvoiceModal";
 
 export interface LineItem {
   name: string;
@@ -65,6 +69,7 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
     items: LineItem[];
   } | null>(null);
   const [loadingBill, setLoadingBill] = useState(false);
+  const [isInvoiceOpen, setIsInvoiceOpen] = useState(false);
 
   // Fetch bill for selected customer
   useEffect(() => {
@@ -173,7 +178,7 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
             </div>
             <div>
               <span className="text-xs font-bold text-white tracking-tight flex items-center gap-1.5">
-                AI Voice Companion <span className="text-[10px] font-mono text-white/40">• Spatial Call Mode</span>
+                Khata Voice Companion <span className="text-[10px] font-mono text-white/40">• Spatial Mode</span>
               </span>
             </div>
           </div>
@@ -234,14 +239,14 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
             </div>
           </motion.div>
 
-          {/* Floating Glass Chat Bubble: Left (AI Voice status) */}
+          {/* Floating Glass Chat Bubble: Left (Voice Assistant status) */}
           <motion.div
             initial={{ opacity: 0, x: -10 }}
             animate={{ opacity: 1, x: 0 }}
             className="absolute left-1 top-2 max-w-[175px] p-2 rounded-2xl bg-white/[0.06] backdrop-blur-xl border border-white/10 shadow-lg text-xs"
           >
             <div className="flex items-center gap-1.5 text-[9px] text-emerald-400 font-mono mb-0.5">
-              <Sparkles className="h-2.5 w-2.5" /> AI Saathi
+              <Sparkles className="h-2.5 w-2.5" /> Dukaan Saathi
             </div>
             <p className="text-white/80 text-[10px] leading-tight">
               {selectedCustomer
@@ -311,6 +316,17 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
+            {/* Create Invoice & Send to Gmail button */}
+            <button
+              onClick={() => setIsInvoiceOpen(true)}
+              className="px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/40 text-[11px] font-semibold flex items-center gap-1.5 transition-all shadow-sm active:scale-95"
+              title="Create Invoice and Redirect to Gmail"
+            >
+              <Mail className="h-3.5 w-3.5" />
+              <span>Invoice / Gmail</span>
+              <ExternalLink className="h-2.5 w-2.5 opacity-60" />
+            </button>
+
             {selectedCustomer && (
               <button
                 onClick={onClearSelectedCustomer}
@@ -353,10 +369,10 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
                     {item.qty} {item.unit || "pkt"}
                   </span>
                   <span className="col-span-2 text-right text-white/60 font-mono tabular-nums text-[11px]">
-                    ₹{item.unit_price}
+                    ₹{Math.round((item.unit_price + Number.EPSILON) * 100) / 100}
                   </span>
                   <span className="col-span-3 text-right text-white font-mono font-semibold tabular-nums">
-                    ₹{item.total}
+                    ₹{Math.round((item.total + Number.EPSILON) * 100) / 100}
                   </span>
                 </div>
               ))
@@ -365,18 +381,49 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
         </div>
 
         {/* Footer Banner: Full-width rich emerald gradient bar with Grand Total */}
-        <div className="pt-2 shrink-0">
-          <div className="p-3 rounded-2xl bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-500 shadow-lg flex items-center justify-between text-slate-950">
+        <div className="pt-2 shrink-0 flex items-center gap-2">
+          <div className="flex-1 p-3 rounded-2xl bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-500 shadow-lg flex items-center justify-between text-slate-950">
             <div className="flex items-center gap-2">
               <FileCheck className="h-4 w-4" />
               <span className="font-bold text-xs tracking-wide uppercase">Grand Total</span>
             </div>
             <span className="text-xl font-extrabold font-mono tabular-nums tracking-tight">
-              ₹{grandTotal.toLocaleString("en-IN")}
+              ₹{(Math.round((grandTotal + Number.EPSILON) * 100) / 100).toLocaleString("en-IN")}
             </span>
           </div>
+
+          <button
+            onClick={() => setIsInvoiceOpen(true)}
+            className="h-full px-4 py-3 rounded-2xl bg-white/[0.08] hover:bg-white/[0.14] border border-white/10 text-white flex items-center gap-2 text-xs font-bold transition-all shadow-md active:scale-95"
+            title="Generate Official Invoice & Send via Gmail"
+          >
+            <Mail className="h-4 w-4 text-emerald-400" />
+            <span className="hidden sm:inline">Send Invoice</span>
+          </button>
         </div>
       </div>
+
+      {/* Invoice Modal with 1-click Gmail Redirect */}
+      <AnimatePresence>
+        {isInvoiceOpen && (
+          <InvoiceModal
+            key="active-live-invoice-modal"
+            isOpen={isInvoiceOpen}
+            onClose={() => setIsInvoiceOpen(false)}
+            customer={
+              selectedCustomer || {
+                id: 1,
+                name: primaryAction.customer || "Walk-in Grahak",
+                phone: null,
+                total_balance: grandTotal,
+                created_at: "",
+              }
+            }
+            items={lineItems}
+            grandTotal={grandTotal}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 };

@@ -264,9 +264,9 @@ export const LedgerCards: React.FC<LedgerCardsProps> = ({
                         }`}
                       >
                         {isCredit
-                          ? `₹${cust.total_balance.toLocaleString("en-IN")}`
+                          ? `₹${(Math.round((cust.total_balance + Number.EPSILON) * 100) / 100).toLocaleString("en-IN")}`
                           : isAdvance
-                          ? `+₹${Math.abs(cust.total_balance).toLocaleString("en-IN")}`
+                          ? `+₹${(Math.round((Math.abs(cust.total_balance) + Number.EPSILON) * 100) / 100).toLocaleString("en-IN")}`
                           : "₹0"}
                       </span>
                     </div>

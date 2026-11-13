@@ -100,12 +100,19 @@ async def get_customer_bill(customer_id: int):
     
     txs = await ledger_manager.get_customer_transactions(customer_id, limit=100)
     parsed_items = extract_line_items_from_history(txs, cust["total_balance"])
+
+    total_billed = round(sum(t["amount"] for t in txs if t["type"] == "CREDIT"), 2)
+    total_paid = round(sum(t["amount"] for t in txs if t["type"] == "PAYMENT"), 2)
+    balance_due = round(cust["total_balance"], 2)
     
     return {
         "customer": cust["name"],
         "customer_id": cust["id"],
         "phone": cust["phone"],
-        "amount": cust["total_balance"],
+        "amount": balance_due,
+        "total_billed": total_billed,
+        "total_paid": total_paid,
+        "balance_due": balance_due,
         "items": parsed_items
     }
 
@@ -190,14 +197,15 @@ async def process_action_item(action: ActionItem) -> tuple[str, str, bool]:
             )
             return f"{matched['name']} ka {int(amt)} rupaye darj ho gaya. Ab total {int(new_bal)} rupaye baaki hai.", "RECORDED", False
 
-    # 1. Spoken correction ("nahi, 430" or "eggs were worth 8 each")
+    # 1. Spoken correction ("nahi, 430" or "eggs were worth 8 each" or "10 ande kharide the na ki 1")
     if act == "CORRECTION":
         if action.amount is not None:
             updated_info, msg = await ledger_manager.handle_spoken_correction(
                 new_amount=action.amount,
                 target_customer=action.customer,
                 target_item=action.target_item,
-                updated_note=action.notes
+                updated_note=action.notes,
+                items=action.items
             )
             if updated_info:
                 return msg, "CORRECTED", False
@@ -380,6 +388,8 @@ async def websocket_endpoint(websocket: WebSocket):
     session_had_client_transcript = False
     last_processed_text = ""
     last_processed_time = 0.0
+    stt_debounce_task: Optional[asyncio.Task] = None
+    buffered_streaming_text = ""
 
     async def stream_audio_response(spoken_text: str, start_time: float):
         """Synthesize warm voice using edge-tts as complete buffer to prevent stuttering."""
@@ -495,14 +505,25 @@ async def websocket_endpoint(websocket: WebSocket):
 
             if msg_type == "START_RECORDING":
                 session_had_client_transcript = False
+                buffered_streaming_text = ""
+                if stt_debounce_task and not stt_debounce_task.done():
+                    stt_debounce_task.cancel()
                 logger.info("Audio recording session started by client.")
 
                 active_stt_client = GnaniSTTClient()
 
+                async def delayed_process(txt: str):
+                    try:
+                        await asyncio.sleep(2.2)
+                        await process_incoming_transcript(txt, source="gnani_debounced")
+                    except asyncio.CancelledError:
+                        pass
+
                 async def on_gnani_transcript(text: str, is_final: bool):
-                    nonlocal session_had_client_transcript
+                    nonlocal session_had_client_transcript, stt_debounce_task, buffered_streaming_text
                     if text:
                         session_had_client_transcript = True
+                        buffered_streaming_text = text
                         await websocket.send_text(json.dumps({
                             "type": "TRANSCRIPT_STREAM",
                             "text": text,
@@ -510,7 +531,9 @@ async def websocket_endpoint(websocket: WebSocket):
                             "source": "gnani"
                         }))
                         if is_final:
-                            await process_incoming_transcript(text, source="gnani")
+                            if stt_debounce_task and not stt_debounce_task.done():
+                                stt_debounce_task.cancel()
+                            stt_debounce_task = asyncio.create_task(delayed_process(text))
 
                 await active_stt_client.connect(on_gnani_transcript)
 
@@ -522,11 +545,15 @@ async def websocket_endpoint(websocket: WebSocket):
 
             elif msg_type == "STOP_RECORDING":
                 logger.info("Audio recording session stopped by client.")
+                if stt_debounce_task and not stt_debounce_task.done():
+                    stt_debounce_task.cancel()
                 if active_stt_client:
                     if not session_had_client_transcript:
                         transcribed = await active_stt_client.finish_and_transcribe()
                         if transcribed:
                             await process_incoming_transcript(transcribed, source=active_stt_client.last_stt_source)
+                    elif buffered_streaming_text:
+                        await process_incoming_transcript(buffered_streaming_text, source="gnani_on_stop")
                     await active_stt_client.disconnect()
                     active_stt_client = None
 

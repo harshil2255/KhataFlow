@@ -2,8 +2,10 @@
 
 import React, { useState, useMemo } from "react";
 import { Customer, Transaction } from "./LedgerCards";
-import { Search, FileText, ChevronDown, ChevronRight, CheckCircle2, Clock, AlertCircle, ArrowUpRight, Download, Filter } from "lucide-react";
+import { Search, FileText, ChevronDown, ChevronRight, CheckCircle2, Clock, AlertCircle, ArrowUpRight, Download, Filter, Mail, ExternalLink } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
+import { InvoiceModal } from "./InvoiceModal";
+import { LineItem } from "./LiveVisualizer";
 
 interface BillsTabProps {
   customers: Customer[];
@@ -15,6 +17,9 @@ export const BillsTab: React.FC<BillsTabProps> = ({ customers, transactions, onS
   const [searchTerm, setSearchTerm] = useState("");
   const [filterStatus, setFilterStatus] = useState<"all" | "unpaid" | "settled" | "advance">("all");
   const [expandedCustId, setExpandedCustId] = useState<number | null>(null);
+  const [invoiceCustomer, setInvoiceCustomer] = useState<Customer | null>(null);
+  const [invoiceItems, setInvoiceItems] = useState<LineItem[]>([]);
+  const [invoiceTotal, setInvoiceTotal] = useState<number>(0);
 
   // Group transactions by customer
   const customerBills = useMemo(() => {
@@ -51,6 +56,29 @@ export const BillsTab: React.FC<BillsTabProps> = ({ customers, transactions, onS
 
   const toggleExpand = (id: number) => {
     setExpandedCustId((prev) => (prev === id ? null : id));
+  };
+
+  const handleOpenCustomerInvoice = async (customer: Customer, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    try {
+      const res = await fetch(`http://localhost:8000/api/customers/${customer.id}/bill`);
+      const data = await res.json();
+      setInvoiceCustomer(customer);
+      setInvoiceItems(data.items || []);
+      setInvoiceTotal(data.amount ?? customer.total_balance);
+    } catch {
+      setInvoiceCustomer(customer);
+      setInvoiceItems([
+        {
+          name: "Kirana Items",
+          qty: 1,
+          unit: "lot",
+          unit_price: customer.total_balance,
+          total: customer.total_balance,
+        },
+      ]);
+      setInvoiceTotal(customer.total_balance);
+    }
   };
 
   return (
@@ -177,17 +205,24 @@ export const BillsTab: React.FC<BillsTabProps> = ({ customers, transactions, onS
                         status === "unpaid" ? "text-rose-400" : status === "advance" ? "text-sky-400" : "text-emerald-400"
                       }
                     >
-                      {status === "advance" ? "+" : ""}₹{Math.abs(customer.total_balance)}
+                      {status === "advance" ? "+" : ""}₹{Math.round((Math.abs(customer.total_balance) + Number.EPSILON) * 100) / 100}
                     </span>
                   </div>
 
-                  <div className="col-span-1 flex justify-end">
+                  <div className="col-span-1 flex items-center justify-end gap-1.5">
+                    <button
+                      onClick={(e) => handleOpenCustomerInvoice(customer, e)}
+                      className="p-1.5 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/30 text-emerald-300 border border-emerald-500/30 transition-colors"
+                      title="Generate Invoice & Send to Gmail"
+                    >
+                      <Mail className="h-3.5 w-3.5" />
+                    </button>
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
                         onSelectCustomerBill(customer);
                       }}
-                      className="p-1 rounded-lg bg-white/[0.06] hover:bg-emerald-500 hover:text-slate-950 text-white/70 transition-colors"
+                      className="p-1.5 rounded-lg bg-white/[0.06] hover:bg-emerald-500 hover:text-slate-950 text-white/70 transition-colors"
                       title="Open in Smart Receipt"
                     >
                       <ArrowUpRight className="h-3.5 w-3.5" />
@@ -244,6 +279,20 @@ export const BillsTab: React.FC<BillsTabProps> = ({ customers, transactions, onS
           })
         )}
       </div>
+
+      {/* Invoice Modal for any customer in Bills Tab */}
+      <AnimatePresence>
+        {invoiceCustomer && (
+          <InvoiceModal
+            key={`bills-invoice-modal-${invoiceCustomer.id}`}
+            isOpen={!!invoiceCustomer}
+            onClose={() => setInvoiceCustomer(null)}
+            customer={invoiceCustomer}
+            items={invoiceItems}
+            grandTotal={invoiceTotal}
+          />
+        )}
+      </AnimatePresence>
     </div>
   );
 };

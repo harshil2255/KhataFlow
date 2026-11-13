@@ -52,8 +52,17 @@ Supported actions:
      action: "REASSIGN_ENTRY", customer: "Suresh Sharma", from_customer: "Ramesh", amount: 100.0, notes: "Doodh"
 7. "QUERY_BALANCE": User asking about balance.
    Examples: "Ramesh ka total kitna baaki hai?", "रमेश का कितना बाकी है?", "aaj kitna udhaar gaya?"
-8. "CORRECTION": User correcting an amount, quantity, or unit rate on the previous item/transaction.
+8. "CORRECTION": User correcting an amount, quantity, unit rate, or canceling/replacing a mistaken item.
+   CRITICAL QUANTITY PRESERVATION RULE:
+   - When the user only updates the PRICE or RATE of an item (e.g., "ande 8.5 ka tha" or "eggs were worth 8 each" or "ande ka rate 8 tha"):
+     DO NOT RESET QUANTITY TO 1! Retain the original quantity previously stated.
+     If 15 eggs were previously bought, and user corrects rate to 8.5, keep qty: 15.0!
+     Calculate amount = original_qty * new_rate (e.g. 15 * 8.5 = 127.5).
    Examples:
+   - "wo 7.5 ka nahi tha, wo 8.5 ka tha" or "mere se galti ho gayi wo 8.5 ka tha na ki 7.5 ka" (when Ayush bought 15 eggs):
+     action: "CORRECTION", customer: "Ayush", target_item: "Ande", amount: 127.5, notes: "15 Ande (8.5rs each)",
+     items: [{"name": "Ande", "qty": 15.0, "unit": "pcs", "unit_price": 8.5, "total": 127.5}]
+     CRITICAL: When the user says they made a mistake about the rate or quantity (e.g. "wo 7.5 ka nahi tha, 8.5 ka tha"), THIS IS A CORRECTION of the previous item! It must NOT create a new duplicate item, it must REPLACE the mistaken entry with the correct 8.5 rate and correct total (15 * 8.5 = 127.5).
    - "Nahi 340 nahi, 430 tha" -> action: "CORRECTION", amount: 430.0
    - "eggs were worth 8 each" or "ande 8 rupaye ke the" ->
      If previous context had 10 eggs, action: "CORRECTION", customer: "<Customer from context>", target_item: "Ande", amount: 80.0, notes: "10 Ande (8rs each)",
@@ -215,11 +224,14 @@ class IntentEngine:
                             total=tot
                         ))
 
-                    amt = act.get("amount")
-                    if amt is not None:
-                        amt = float(amt)
-                    elif items:
-                        amt = sum(item.total for item in items)
+                    # If items are present with valid totals, calculate amount strictly as the sum of items!
+                    # This prevents LLM hallucinations (e.g. LLM guessing 260 or 160 when items sum to 210)
+                    if items:
+                        amt = round(sum(item.total for item in items), 2)
+                    elif act.get("amount") is not None:
+                        amt = float(act.get("amount"))
+                    else:
+                        amt = 0.0
 
                     actions.append(ActionItem(
                         action=act.get("action", "UNKNOWN"),

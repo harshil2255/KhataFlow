@@ -1,4 +1,5 @@
 import os
+import re
 import aiosqlite
 from typing import List, Optional, Tuple, Dict, Any
 from datetime import datetime
@@ -187,13 +188,13 @@ class LedgerManager:
                     raise ValueError(f"Customer with id {customer_id} not found")
                 current_bal = cust["total_balance"]
 
-            # Calculate new balance
+            # Calculate new balance rounded to 2 decimal places to prevent IEEE 754 precision issues
             if tx_type == "CREDIT":
-                new_bal = current_bal + amount
+                new_bal = round(current_bal + amount, 2)
             elif tx_type == "PAYMENT":
-                new_bal = current_bal - amount
+                new_bal = round(current_bal - amount, 2)
             else:
-                new_bal = current_bal
+                new_bal = round(current_bal, 2)
 
             # Insert transaction
             cursor = await db.execute(
@@ -224,12 +225,14 @@ class LedgerManager:
         new_amount: float,
         target_customer: Optional[str] = None,
         target_item: Optional[str] = None,
-        updated_note: Optional[str] = None
+        updated_note: Optional[str] = None,
+        items: Optional[List[Any]] = None
     ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
         """
-        Handles spoken correction like "Nahi 340 nahi, 430 tha" or "eggs were worth 8 each".
-        Finds the exact matching transaction (by target_customer, target_item, or latest)
-        and updates it atomically without zeroing out or corrupting unrelated transactions.
+        Handles spoken correction like "Nahi 340 nahi, 430 tha", "eggs were worth 8 each",
+        or "Krishna Nema ne 10 ande kharide the, na ki 1 ande".
+        Finds the exact matching transaction and updates item quantities or rates atomically,
+        preserving all other existing items on the customer's bill.
         """
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
@@ -289,17 +292,100 @@ class LedgerManager:
             tx_type = target_tx["type"]
             current_bal = target_tx["total_balance"]
 
-            # Compute balance difference
-            diff = new_amount - old_amount
+            old_notes = target_tx["notes"] or ""
+            clean_old_notes = re.sub(r'\[.*?\]', '', old_notes).strip()
+
+            from backend.services.item_parser import extract_line_items_from_history
+            existing_items = extract_line_items_from_history([{"type": "CREDIT", "amount": old_amount, "notes": clean_old_notes}], old_amount)
+
+            # Determine incoming items from items parameter or by parsing updated_note
+            incoming_items = []
+            if items:
+                for it in items:
+                    if hasattr(it, "model_dump"):
+                        incoming_items.append(it.model_dump())
+                    elif isinstance(it, dict):
+                        incoming_items.append(it)
+            elif updated_note:
+                parsed_up = extract_line_items_from_history([{"type": "CREDIT", "amount": new_amount, "notes": updated_note}], new_amount)
+                if parsed_up:
+                    incoming_items = parsed_up
+
+            calculated_amount = new_amount
+            final_note = updated_note or target_tx["notes"] or "Item purchase"
+
+            # If the transaction had multiple existing items (e.g. Ande & Maggi),
+            # and the user is correcting only one of them (e.g. 10 ande instead of 1 ande):
+            if existing_items and incoming_items:
+                item_map = {}
+                for e_it in existing_items:
+                    k = e_it["name"].lower().strip()
+                    item_map[k] = dict(e_it)
+
+                for inc_it in incoming_items:
+                    inc_k = inc_it["name"].lower().strip()
+                    # Match exact name or substring (e.g. "ande" in "10 ande" or "egg")
+                    matched_key = None
+                    for exist_k in item_map:
+                        if inc_k == exist_k or inc_k in exist_k or exist_k in inc_k:
+                            matched_key = exist_k
+                            break
+
+                    if matched_key:
+                        curr = item_map[matched_key]
+                        # Preserve unit price if incoming is missing/zero, update qty & total
+                        u_price = inc_it["unit_price"] if inc_it.get("unit_price") and inc_it["unit_price"] > 0 else curr["unit_price"]
+                        qty = inc_it["qty"] if inc_it.get("qty") and inc_it["qty"] > 0 else curr["qty"]
+                        tot = round(qty * u_price, 2)
+                        item_map[matched_key] = {
+                            "name": curr["name"],
+                            "qty": qty,
+                            "unit": curr.get("unit", "pkt"),
+                            "unit_price": u_price,
+                            "total": tot
+                        }
+                    else:
+                        item_map[inc_k] = dict(inc_it)
+
+                merged_items = list(item_map.values())
+                note_parts = [f"{it['qty']:g} {it['name']} ({it['unit_price']:g}rs each)" for it in merged_items]
+                final_note = ", ".join(note_parts)
+                calculated_amount = round(sum(it["total"] for it in merged_items), 2)
+            elif target_item and clean_old_notes:
+                # Regex fallback for single item rate change
+                p_qty = re.compile(
+                    rf'(\d+(?:\.\d+)?)\s*(?:packet|pkt|kg|pieces?|pcs?|piece|litres|l|gm)?\s*(?:of\s*)?{re.escape(target_item)}',
+                    re.I
+                )
+                m_qty = p_qty.search(clean_old_notes)
+                existing_qty = float(m_qty.group(1)) if m_qty else None
+
+                p_sub = re.compile(
+                    rf'(\d+(?:\.\d+)?\s*(?:packet|pkt|kg|pieces?|pcs?|piece|litres|l|gm)?\s*(?:of\s*)?{re.escape(target_item)}\s*)\(\s*\d+(?:\.\d+)?\s*(?:rs|rupaye|rupees)?\s*each\s*\)',
+                    re.I
+                )
+                if p_sub.search(clean_old_notes):
+                    unit_rate = new_amount
+                    if existing_qty and existing_qty > 1 and new_amount <= 50 and old_amount >= 50:
+                        unit_rate = new_amount
+                        calculated_amount = round(existing_qty * unit_rate, 2)
+                    final_note = p_sub.sub(rf'\g<1>({unit_rate:g}rs each)', clean_old_notes)
+                    re_items = extract_line_items_from_history([{"type": "CREDIT", "amount": 999999, "notes": final_note}], 999999)
+                    if re_items:
+                        calculated_amount = round(sum(it["total"] for it in re_items), 2)
+
+            new_amount = calculated_amount
+
+            # Compute balance difference rounded to 2 decimal places
+            diff = round(new_amount - old_amount, 2)
             if tx_type == "CREDIT":
-                updated_balance = current_bal + diff
+                updated_balance = round(current_bal + diff, 2)
             elif tx_type == "PAYMENT":
-                updated_balance = current_bal - diff
+                updated_balance = round(current_bal - diff, 2)
             else:
-                updated_balance = current_bal
+                updated_balance = round(current_bal, 2)
 
             # Update transaction amount & notes
-            final_note = updated_note or target_tx["notes"] or "Item purchase"
             if "[Sudhara" not in final_note:
                 notes = f"{final_note} [Sudhara gaya: {old_amount} se {new_amount}]"
             else:
