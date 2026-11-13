@@ -82,18 +82,32 @@ class LedgerManager:
 
     async def find_customers_by_name(self, name: str) -> List[Dict[str, Any]]:
         cleaned_name = name.strip()
+        if not cleaned_name:
+            return []
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
-            # Try exact match first
+            # 1. Exact match (case-insensitive)
             async with db.execute("SELECT * FROM customers WHERE LOWER(name) = LOWER(?)", (cleaned_name,)) as cur:
                 exact = await cur.fetchall()
                 if exact:
                     return [dict(r) for r in exact]
             
-            # Substring / first name match
+            # 2. Word-boundary / exact prefix match (e.g. "Krishna" matching "Krishna", NOT prioritizing "Krishna Nema" over exact)
+            # Find all potential matches
             async with db.execute("SELECT * FROM customers WHERE LOWER(name) LIKE LOWER(?)", (f"%{cleaned_name}%",)) as cur:
-                matches = await cur.fetchall()
-                return [dict(r) for r in matches]
+                matches = [dict(r) for r in await cur.fetchall()]
+            
+            if not matches:
+                return []
+
+            # If an entry's name strictly equals the cleaned_name, prioritize it
+            for m in matches:
+                if m["name"].lower() == cleaned_name.lower():
+                    return [m]
+
+            # If input is multiple words (e.g. "Krishna Nema"), sort by closest length match so full name wins
+            matches.sort(key=lambda x: abs(len(x["name"]) - len(cleaned_name)))
+            return matches
 
     async def get_or_create_customer(self, name: str, phone: Optional[str] = None) -> Tuple[Dict[str, Any], bool]:
         """

@@ -34,17 +34,30 @@ Supported actions:
    - "पूजा ने 200 रुपये का मैदा खरीदा, 50 रुपये की Maggi खरीदी। उधार में डाल दो।"
    - "Ramesh ka 340 udhaar"
    - "Mukesh Patel ke khate me 500 ka tel likh do"
+   - "Krishna Nema ne 50 rupaye ka tel khareeda"
 5. "RECORD_PAYMENT": Customer paid money / jama kiya.
    Examples: "kal 200 diya tha", "रमेश ने 350 रुपये नकद जमा कर दिए"
    - Special Rule for "pura udhaar chuka diya / poora hisaab clear kar diya / pura chukta":
      If the user says "pura udhaar chuka diya", "sab chukta kar diya", "poora hisaab chuka diya", or says to clear all debt WITHOUT mentioning an exact amount:
      Set action: "RECORD_PAYMENT", customer: "<Customer Name>", notes: "Pura udhaar chuka diya (Full Settle)", amount: null, target: "clear_all".
-6. "QUERY_BALANCE": User asking about balance.
+6. "REASSIGN_ENTRY": User explicitly corrects that one customer did NOT buy the goods and ANOTHER customer bought them!
+   Examples:
+   - "कृष्णा ने नहीं खरीदा था, कृष्णा नेमा ने खरीदा था 50 रुपये का तेल" ->
+     action: "REASSIGN_ENTRY", customer: "Krishna Nema", from_customer: "Krishna", amount: 50.0, notes: "Tel",
+     items: [{"name": "Tel", "qty": 1.0, "unit": "pkt", "unit_price": 50.0, "total": 50.0}]
+   - "Ramesh ne nahi liya tha, Suresh Sharma ne liya tha 100 ka doodh" ->
+     action: "REASSIGN_ENTRY", customer: "Suresh Sharma", from_customer: "Ramesh", amount: 100.0, notes: "Doodh"
+7. "QUERY_BALANCE": User asking about balance.
    Examples: "Ramesh ka total kitna baaki hai?", "रमेश का कितना बाकी है?", "aaj kitna udhaar gaya?"
-7. "CORRECTION": User correcting a previous number or entry.
-   Examples: "Nahi 340 nahi, 430 tha", "nahi 430", "nahi 350 nahi 450 tha", "गलती से 300 लिख दिया, 430 करो"
-8. "DISAMBIGUATION_RESPONSE": User specifying which customer when asked (e.g. "Gupta ji", "Verma wala", "9876 wala").
-9. "UNKNOWN": Greetings or unclear speech.
+8. "CORRECTION": User correcting an amount on the previous customer (e.g. "Nahi 340 nahi, 430 tha", "nahi 430", "nahi 350 nahi 450 tha").
+9. "DISAMBIGUATION_RESPONSE": User specifying which customer when asked (e.g. "Gupta ji", "Verma wala", "9876 wala").
+10. "UNKNOWN": Greetings or unclear speech.
+
+CRITICAL CUSTOMER NAME EXTRACTION RULES:
+- Full Names vs First Names: Always capture and preserve the EXACT, COMPLETE customer name spoken!
+- NEVER truncate full names into first names. If the user says "Krishna Nema", set customer: "Krishna Nema", NOT "Krishna".
+- If the user says "Mukesh Kumar", set customer: "Mukesh Kumar", NOT "Mukesh".
+- Transliteration of Indic names: "कृष्णा नेमा" -> "Krishna Nema", "मुकेश पटेल" -> "Mukesh Patel".
 
 Quantity Defaulting Rule:
 - When an item and price are mentioned WITHOUT explicit quantity (e.g., "200 ka maida, 50 ki Maggi"):
@@ -57,8 +70,9 @@ JSON Output Format (Strictly return only this JSON object):
 {
   "actions": [
     {
-      "action": "GENERATE_BILL" | "CREATE_CUSTOMER" | "UPDATE_CUSTOMER" | "ADD_CREDIT" | "RECORD_PAYMENT" | "QUERY_BALANCE" | "CORRECTION" | "DISAMBIGUATION_RESPONSE" | "UNKNOWN",
+      "action": "GENERATE_BILL" | "CREATE_CUSTOMER" | "UPDATE_CUSTOMER" | "ADD_CREDIT" | "RECORD_PAYMENT" | "REASSIGN_ENTRY" | "QUERY_BALANCE" | "CORRECTION" | "DISAMBIGUATION_RESPONSE" | "UNKNOWN",
       "customer": "Customer Name or null",
+      "from_customer": "Previous Customer Name if REASSIGN_ENTRY, else null",
       "phone": "Phone or null",
       "amount": 430.0 or null,
       "date": "today" | "yesterday" | "specific date",
@@ -81,10 +95,13 @@ JSON Output Format (Strictly return only this JSON object):
 """
 
 NAME_MAP_INDIC = {
+    "कृष्णा": "Krishna",
+    "नेमा": "Nema",
     "रमेश": "Ramesh",
     "सुरेश": "Suresh",
     "पूजा": "Pooja",
     "मुकेश": "Mukesh",
+    "कुमार": "Kumar",
     "गुप्ता": "Gupta",
     "वर्मा": "Verma",
     "शर्मा": "Sharma",
@@ -194,6 +211,7 @@ class IntentEngine:
                     actions.append(ActionItem(
                         action=act.get("action", "UNKNOWN"),
                         customer=act.get("customer"),
+                        from_customer=act.get("from_customer"),
                         phone=act.get("phone"),
                         amount=amt,
                         date=act.get("date", "today"),

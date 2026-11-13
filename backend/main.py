@@ -199,6 +199,49 @@ async def process_action_item(action: ActionItem) -> tuple[str, str, bool]:
             return msg or "Koi purana record nahi mila jise sudhara ja sake.", "ERROR", False
         return "Naya amount samajh nahi aaya.", "ERROR", False
 
+    # 1a. Reassign / Transfer entry between customers ("Krishna ne nahi khareeda tha, Krishna Nema ne khareeda tha 50 ka tel")
+    if act == "REASSIGN_ENTRY":
+        target_name = action.customer
+        from_name = action.from_customer
+        amt = action.amount or 0.0
+        note = action.notes or "Reassigned Entry"
+
+        if not target_name:
+            return "Kripya sahi grahak ka naam batayein.", "NEED_CUSTOMER", False
+
+        # 1. Ensure target customer exists
+        target_cust, is_new_target = await ledger_manager.get_or_create_customer(target_name, action.phone)
+        
+        # 2. Add transaction to the target customer
+        await ledger_manager.record_transaction(
+            customer_id=target_cust["id"],
+            amount=amt,
+            tx_type="CREDIT",
+            notes=f"{note} (Sahi khate me add kiya)"
+        )
+
+        # 3. If from_customer was specified, remove/reverse the wrongful charge from from_customer
+        from_cust_msg = ""
+        if from_name:
+            from_cands = await ledger_manager.find_customers_by_name(from_name)
+            if from_cands:
+                from_cust = from_cands[0]
+                # Reversal entry (PAYMENT/Credit-Note)
+                await ledger_manager.record_transaction(
+                    customer_id=from_cust["id"],
+                    amount=amt,
+                    tx_type="PAYMENT",
+                    notes=f"Galat entry hatayi: {target_cust['name']} ke khate me transfer kiya"
+                )
+                from_cust_msg = f"{from_cust['name']} ke khate se {int(amt)} rupaye hata kar, "
+
+        # Retrieve updated balance for target
+        updated_cands = await ledger_manager.find_customers_by_name(target_cust["name"])
+        target_bal = updated_cands[0]["total_balance"] if updated_cands else 0.0
+
+        spoken = f"Theek hai, {from_cust_msg}{target_cust['name']} ke khate me {int(amt)} rupaye darj kar diye hain. Ab {target_cust['name']} ka kul baaki {int(target_bal)} rupaye hai."
+        return spoken, "REASSIGNED", is_new_target
+
     # 1b. Create Customer directly via voice command ("naya grahak banao Mukesh Patel")
     if act == "CREATE_CUSTOMER":
         cust_name = action.customer or "Naya Grahak"

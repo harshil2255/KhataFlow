@@ -24,8 +24,9 @@ class LineItem(BaseModel):
     total: float = Field(default=0.0, description="qty * unit_price")
 
 class ActionItem(BaseModel):
-    action: str = Field(description="ADD_CREDIT, RECORD_PAYMENT, QUERY_BALANCE, CORRECTION, DISAMBIGUATION_RESPONSE, NEEDS_CLARIFICATION, or UNKNOWN")
-    customer: Optional[str] = Field(default=None, description="Customer name, e.g., Ramesh, Suresh")
+    action: str = Field(description="ADD_CREDIT, RECORD_PAYMENT, QUERY_BALANCE, CORRECTION, REASSIGN_ENTRY, DISAMBIGUATION_RESPONSE, NEEDS_CLARIFICATION, or UNKNOWN")
+    customer: Optional[str] = Field(default=None, description="Customer name, e.g., Ramesh, Suresh, Krishna Nema")
+    from_customer: Optional[str] = Field(default=None, description="Original/previous customer name when reassigning or transferring an entry")
     phone: Optional[str] = Field(default=None, description="Customer phone if mentioned")
     amount: Optional[float] = Field(default=None, description="Total amount in rupees")
     date: Optional[str] = Field(default="today", description="today, yesterday, specific date")
