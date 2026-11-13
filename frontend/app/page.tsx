@@ -3,8 +3,27 @@
 import React, { useState, useEffect, useRef, useCallback } from "react";
 import { LedgerCards, Customer, Transaction } from "@/components/LedgerCards";
 import { LiveVisualizer, ActionItem } from "@/components/LiveVisualizer";
+import { BillsTab } from "@/components/BillsTab";
+import { AnalyticsTab } from "@/components/AnalyticsTab";
+import { SettingsTab } from "@/components/SettingsTab";
+import { ThemeProvider, useTheme } from "@/context/ThemeContext";
 import { PCMAudioRecorder } from "@/lib/audioRecorder";
-import { Mic, MicOff, Sparkles, Store, Flame, Zap } from "lucide-react";
+import {
+  Users,
+  FileText,
+  BarChart3,
+  Settings,
+  Mic,
+  MicOff,
+  Sparkles,
+  Wallet,
+  Activity,
+  Layers,
+  Palette,
+} from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+
+type ActiveTab = "customers" | "bills" | "analytics" | "settings";
 
 type RecognitionResultItem = { isFinal: boolean; 0: { transcript: string } };
 type SpeechRecognitionEventLike = {
@@ -28,13 +47,16 @@ type SpeechWindow = Window & {
   webkitSpeechRecognition?: SpeechRecognitionCtor;
 };
 
-export default function Home() {
+function KhataFlowDashboard() {
+  const { theme, accentColors } = useTheme();
+  const [activeTab, setActiveTab] = useState<ActiveTab>("customers");
+
   const [customers, setCustomers] = useState<Customer[]>([]);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [lastUpdatedCustomerId, setLastUpdatedCustomerId] = useState<number | null>(null);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
 
-  // Standard Hero Voice Input state
+  // Standard Voice Input state
   const [isRecording, setIsRecording] = useState(false);
   const [transcript, setTranscript] = useState("");
   const [isFinalTranscript, setIsFinalTranscript] = useState(false);
@@ -52,7 +74,7 @@ export default function Home() {
   const recordingActiveRef = useRef(false);
   const highlightTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Sequential audio playback queue
+  // Audio playback queue
   const nextPlayTimeRef = useRef(0);
   const drainTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -92,9 +114,7 @@ export default function Home() {
         nextPlayTimeRef.current = startAt + audioBuffer.duration;
 
         setSpokenAudioPlaying(true);
-      } catch (e) {
-        // Fallback for audio chunk
-      }
+      } catch (e) {}
     },
     [initPlaybackContext]
   );
@@ -119,7 +139,6 @@ export default function Home() {
       ws.onopen = () => {
         if (unmounted) return;
         setIsConnected(true);
-        console.log("KhataFlow Voice WebSocket connected");
       };
 
       ws.onmessage = (event) => {
@@ -148,8 +167,6 @@ export default function Home() {
             setIsFinalTranscript(!!msg.is_final);
           } else if (msg.type === "INTENT_EXTRACTED") {
             setExtractedPayload(msg.payload);
-            // Whenever a voice action/bill is parsed, immediately clear any previous customer history view
-            // so the Live Smart Receipt table displays the newly parsed items & bill!
             setSelectedCustomer(null);
           } else if (msg.type === "LATENCY_METRIC") {
             setTtfaLatencyMs(msg.ttfa_ms);
@@ -158,22 +175,17 @@ export default function Home() {
             void playAudioChunk(msg.audio_base64);
           } else if (msg.type === "AUDIO_RESPONSE_COMPLETE") {
             if (drainTimerRef.current) clearTimeout(drainTimerRef.current);
-            const ctx = audioContextRef.current;
-            const remainingMs = ctx ? Math.max(0, (nextPlayTimeRef.current - ctx.currentTime) * 1000) : 0;
             drainTimerRef.current = setTimeout(() => {
               setSpokenAudioPlaying(false);
-              nextPlayTimeRef.current = 0;
-            }, remainingMs + 150);
+            }, 300);
           }
-        } catch (e) {
-          console.error("Error parsing WS message:", e);
-        }
+        } catch (e) {}
       };
 
       ws.onclose = () => {
         if (unmounted) return;
         setIsConnected(false);
-        reconnectTimer = setTimeout(connectWebSocket, 2500);
+        reconnectTimer = setTimeout(connectWebSocket, 1500);
       };
 
       ws.onerror = () => {
@@ -189,16 +201,20 @@ export default function Home() {
       unmounted = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
       if (socketRef.current) {
-        if (socketRef.current.readyState === WebSocket.OPEN || socketRef.current.readyState === WebSocket.CONNECTING) {
+        socketRef.current.onopen = null;
+        socketRef.current.onmessage = null;
+        socketRef.current.onclose = null;
+        socketRef.current.onerror = null;
+        try {
           socketRef.current.close();
-        }
+        } catch (e) {}
       }
       if (highlightTimerRef.current) clearTimeout(highlightTimerRef.current);
       if (drainTimerRef.current) clearTimeout(drainTimerRef.current);
     };
   }, [initPlaybackContext, playAudioChunk, markHighlight]);
 
-  // Dedicated Push-to-Talk / Toggle Voice Recording
+  // Push-to-Talk Voice Recording
   const stopRecording = useCallback(() => {
     recordingActiveRef.current = false;
     setIsRecording(false);
@@ -241,7 +257,6 @@ export default function Home() {
       return window.btoa(binary);
     };
 
-    // 1. PCM Audio Recorder for 16kHz audio streaming
     try {
       const rec = new PCMAudioRecorder();
       await rec.start(
@@ -259,11 +274,9 @@ export default function Home() {
         () => {}
       );
       recorderRef.current = rec;
-    } catch (e) {
-      console.warn("PCM Mic recorder failed, relying on WebSpeech:", e);
-    }
+    } catch (e) {}
 
-    // 2. WebSpeech for instant UI feedback
+    // WebSpeech instant local feedback
     const speechWin = window as unknown as SpeechWindow;
     const SpeechCtor = speechWin.SpeechRecognition || speechWin.webkitSpeechRecognition;
 
@@ -314,9 +327,7 @@ export default function Home() {
       try {
         recognition.start();
         recognitionRef.current = recognition;
-      } catch (e) {
-        console.error("SpeechRecognition error:", e);
-      }
+      } catch (e) {}
     }
   }, [initPlaybackContext]);
 
@@ -329,27 +340,25 @@ export default function Home() {
   }, [isRecording, startRecording, stopRecording]);
 
   const handleSimulateSpeech = (text: string) => {
-    initPlaybackContext();
     setTranscript(text);
     setIsFinalTranscript(true);
-
     if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
       socketRef.current.send(
         JSON.stringify({
           type: "PROCESS_TRANSCRIPT",
-          text: text,
-          source: "demo",
+          text,
+          source: "simulation",
         })
       );
     }
   };
 
-  const handleConfirmAction = (actionItem: ActionItem) => {
+  const handleConfirmAction = (action: ActionItem) => {
     if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
       socketRef.current.send(
         JSON.stringify({
           type: "CONFIRM_ACTION",
-          action: actionItem,
+          action,
         })
       );
     }
@@ -367,9 +376,6 @@ export default function Home() {
     await fetch(`http://localhost:8000/api/customers/${customerId}`, {
       method: "DELETE",
     });
-    if (selectedCustomer?.id === customerId) {
-      setSelectedCustomer(null);
-    }
   };
 
   const handleUpdateCustomer = async (customerId: number, data: { name: string; phone?: string }) => {
@@ -385,24 +391,74 @@ export default function Home() {
     .reduce((sum, c) => sum + c.total_balance, 0);
 
   return (
-    <div className="relative flex flex-col h-screen w-full bg-[#0A0C12] font-sans select-none overflow-hidden text-white">
-      {/* Warm Ambient Radial Mesh Glows */}
-      <div className="absolute top-[-10%] left-[-5%] w-[600px] h-[600px] rounded-full bg-[#1E1B4B]/25 blur-[140px] pointer-events-none" />
-      <div className="absolute bottom-[-10%] right-[-5%] w-[600px] h-[600px] rounded-full bg-[#064E3B]/20 blur-[140px] pointer-events-none" />
-      <div className="absolute top-[35%] right-[25%] w-[400px] h-[400px] rounded-full bg-emerald-500/[0.03] blur-[120px] pointer-events-none" />
+    <div className="relative h-screen w-screen overflow-hidden flex flex-col bg-[#0A0C12] text-white font-sans select-none">
+      {/* Dynamic Background Layer (Fixed z-0) */}
+      <div className="absolute inset-0 z-0 pointer-events-none overflow-hidden">
+        {theme.bgType === "image" && theme.bgUrl ? (
+          <img
+            src={theme.bgUrl}
+            alt="Custom Spatial Wallpaper"
+            className="w-full h-full object-cover object-center"
+          />
+        ) : theme.bgType === "video" && theme.bgUrl ? (
+          <video
+            src={theme.bgUrl}
+            autoPlay
+            loop
+            muted
+            playsInline
+            className="w-full h-full object-cover object-center"
+          />
+        ) : (
+          /* Ambient Mesh Glow Orbs */
+          <>
+            <div
+              className="absolute top-[-15%] left-[-10%] w-[700px] h-[700px] rounded-full blur-[160px] opacity-35"
+              style={{ backgroundColor: accentColors.radialOrb1 }}
+            />
+            <div
+              className="absolute bottom-[-15%] right-[-10%] w-[700px] h-[700px] rounded-full blur-[160px] opacity-30"
+              style={{ backgroundColor: accentColors.radialOrb2 }}
+            />
+            <div
+              className="absolute top-[30%] right-[30%] w-[500px] h-[500px] rounded-full blur-[140px] opacity-15"
+              style={{ backgroundColor: accentColors.primary }}
+            />
+          </>
+        )}
 
-      {/* Top Floating Glass Command Bar */}
-      <header className="z-20 h-16 px-6 mx-4 mt-3 rounded-3xl glass-panel flex items-center justify-between shrink-0">
-        {/* Left: Brand & Engine Status */}
+        {/* Global Dark Glass Tint Overlay so content is always high-contrast */}
+        <div
+          className="absolute inset-0"
+          style={{
+            backgroundColor: `rgba(10, 12, 18, ${theme.tintOpacity})`,
+          }}
+        />
+      </div>
+
+      {/* Top Floating Glass Header (h-16) */}
+      <header
+        className="z-20 h-16 px-6 mx-4 mt-3 rounded-3xl flex items-center justify-between shrink-0"
+        style={{
+          backgroundColor: `rgba(17, 21, 34, ${theme.glassOpacity})`,
+          backdropFilter: `blur(${theme.glassBlur}px)`,
+          WebkitBackdropFilter: `blur(${theme.glassBlur}px)`,
+          border: "1px solid rgba(255, 255, 255, 0.08)",
+          boxShadow: "inset 0 1px 0 0 rgba(255, 255, 255, 0.08), 0 20px 50px rgba(0, 0, 0, 0.5)",
+        }}
+      >
+        {/* Left: Brand Mark */}
         <div className="flex items-center gap-3">
-          <div className="h-9 w-9 rounded-2xl bg-gradient-to-tr from-emerald-400 via-teal-400 to-cyan-500 flex items-center justify-center font-bold text-slate-950 text-sm shadow-[0_0_20px_rgba(52,211,153,0.35)]">
+          <div
+            className={`h-9 w-9 rounded-2xl bg-gradient-to-tr ${accentColors.gradient} flex items-center justify-center font-bold text-slate-950 text-sm shadow-[0_0_20px_rgba(52,211,153,0.35)]`}
+          >
             KF
           </div>
           <div>
             <div className="flex items-center gap-2">
               <span className="font-bold text-sm tracking-tight text-white">KhataFlow</span>
               <span className="text-[10px] font-mono px-2 py-0.2 rounded-full bg-white/[0.08] text-white/60 border border-white/[0.08]">
-                Voice POS
+                Dukaan ka Smart Saathi
               </span>
             </div>
             <div className="flex items-center gap-1.5">
@@ -419,89 +475,251 @@ export default function Home() {
                 />
               </span>
               <span className="text-[11px] text-white/50 font-medium">
-                {isConnected ? "Engine Online • edge-tts • Groq" : "Connecting..."}
+                {isConnected ? "Voice AI Online • Groq • edge-tts" : "Connecting..."}
               </span>
             </div>
           </div>
         </div>
 
-        {/* Center: Hero "Bol Kar Khata Likhein" Voice Action Button */}
+        {/* Center: Tactile Pill Trigger "Bol Kar Khata Likhein" with Mic & Wave */}
         <div className="flex items-center">
           <button
             onClick={toggleRecording}
-            className={`relative group px-6 py-2.5 rounded-full font-bold text-xs tracking-wide flex items-center gap-2.5 transition-all shadow-xl active:scale-[0.97] ${
+            className={`relative group px-5 py-2 rounded-full font-bold text-xs tracking-wide flex items-center gap-3 transition-all shadow-xl active:scale-[0.97] border ${
               isRecording
-                ? "bg-rose-600 hover:bg-rose-500 text-white shadow-rose-900/50"
-                : "bg-gradient-to-r from-emerald-400 to-teal-500 hover:from-emerald-300 hover:to-teal-400 text-slate-950 shadow-[0_0_25px_rgba(52,211,153,0.35)]"
+                ? "bg-rose-600 hover:bg-rose-500 text-white border-rose-400/50 shadow-rose-900/50"
+                : "bg-white/[0.06] hover:bg-white/[0.1] border-white/10 text-white shadow-lg"
             }`}
           >
-            <span
-              className={`absolute -inset-1 rounded-full opacity-40 blur-sm pointer-events-none transition-all ${
-                isRecording ? "bg-rose-500 animate-ping" : "bg-emerald-400 group-hover:opacity-75"
+            {/* Glowing circular mic button on the left */}
+            <div
+              className={`h-7 w-7 rounded-full flex items-center justify-center transition-all ${
+                isRecording
+                  ? "bg-white text-rose-600 animate-pulse"
+                  : `bg-gradient-to-r ${accentColors.gradient} text-slate-950 shadow-[0_0_15px_rgba(52,211,153,0.4)]`
               }`}
-            />
-            {isRecording ? (
-              <>
-                <MicOff className="h-4 w-4 relative z-10" />
-                <span className="relative z-10 font-sans">Sun Raha Hoon (Tap to Stop)</span>
-              </>
-            ) : (
-              <>
-                <Mic className="h-4 w-4 relative z-10" />
-                <span className="relative z-10 font-sans">Bol Kar Khata Likhein</span>
-              </>
-            )}
+            >
+              {isRecording ? <MicOff className="h-3.5 w-3.5" /> : <Mic className="h-3.5 w-3.5" />}
+            </div>
+
+            <span className="font-sans font-semibold">
+              {isRecording ? "Sun Raha Hoon (Tap to Stop)" : "Bol Kar Khata Likhein"}
+            </span>
+
+            {/* Live animated waveform on the right */}
+            <div className="flex items-center gap-0.5 h-4 px-1">
+              {[0.4, 0.8, 1.2, 0.6, 1.0].map((h, i) => (
+                <motion.span
+                  key={i}
+                  animate={{
+                    scaleY: isRecording ? [0.3, 1.4, 0.4] : [0.3, 0.7, 0.3],
+                  }}
+                  transition={{
+                    repeat: Infinity,
+                    duration: 0.8,
+                    delay: i * 0.12,
+                    ease: "easeInOut",
+                  }}
+                  className={`w-0.5 h-3 rounded-full ${
+                    isRecording ? "bg-rose-400" : "bg-emerald-400"
+                  }`}
+                />
+              ))}
+            </div>
           </button>
         </div>
 
-        {/* Right: Kul Udhaar KPI Pill Badge */}
+        {/* Right: Frosted Wallet KPI Pill & Theme Pill */}
         <div className="flex items-center gap-3">
-          <div className="hidden sm:flex items-center gap-2 px-4 py-1.5 rounded-2xl bg-white/[0.03] border border-white/[0.08]">
-            <span className="text-[11px] font-medium text-white/50">Kul Udhaar:</span>
-            <span className="font-mono font-bold text-sm text-[#FB7185] tabular-nums">
+          <div className="flex items-center gap-2 px-3.5 py-1.5 rounded-2xl bg-white/[0.04] border border-white/[0.08] shadow-inner">
+            <Wallet className="h-3.5 w-3.5 text-emerald-400" />
+            <span className="font-mono font-bold text-xs text-[#FB7185] tabular-nums">
               ₹{totalReceivable.toLocaleString("en-IN")}
             </span>
+            <span className="text-[11px] text-white/50 font-medium">Total Receivable</span>
           </div>
 
-          <div className="px-3 py-1 rounded-xl bg-emerald-500/10 border border-emerald-500/20 text-[10px] font-mono text-emerald-300 font-medium">
-            Indic Voice
-          </div>
+          <button
+            onClick={() => setActiveTab("settings")}
+            className="h-9 w-9 rounded-2xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] flex items-center justify-center text-white/70 hover:text-white transition-colors"
+            title="Appearance Studio"
+          >
+            <Palette className="h-4 w-4" />
+          </button>
         </div>
       </header>
 
-      {/* Main Split-Screen Area (42% Left Ledger | 58% Right Live Voice & Receipt Stage) */}
-      <div className="flex flex-1 overflow-hidden pt-3 px-4 pb-4 gap-4">
-        {/* Left Column: Grahak Khata (42% width) */}
-        <div className="w-[42%] h-full overflow-hidden">
-          <LedgerCards
-            customers={customers}
-            transactions={transactions}
-            lastUpdatedCustomerId={lastUpdatedCustomerId}
-            onCustomerSelect={(cust) => setSelectedCustomer(cust)}
-            selectedCustomerId={selectedCustomer?.id}
-            onAddCustomer={handleAddCustomer}
-            onDeleteCustomer={handleDeleteCustomer}
-            onUpdateCustomer={handleUpdateCustomer}
-          />
-        </div>
+      {/* Main Workspace Frame with Left Nav Rail */}
+      <div className="flex flex-1 overflow-hidden pt-3 px-4 pb-4 gap-4 z-10">
+        {/* Left Floating Navigation Rail (w-24) */}
+        <nav
+          className="w-24 h-full rounded-3xl p-3 flex flex-col justify-between items-center shrink-0"
+          style={{
+            backgroundColor: `rgba(17, 21, 34, ${theme.glassOpacity})`,
+            backdropFilter: `blur(${theme.glassBlur}px)`,
+            WebkitBackdropFilter: `blur(${theme.glassBlur}px)`,
+            border: "1px solid rgba(255, 255, 255, 0.08)",
+            boxShadow: "inset 0 1px 0 0 rgba(255, 255, 255, 0.08), 0 20px 50px rgba(0, 0, 0, 0.5)",
+          }}
+        >
+          {/* Top: 4 Nav Buttons with Animated LayoutId Pill */}
+          <div className="w-full flex flex-col items-center gap-2 pt-1">
+            {(
+              [
+                { id: "customers", label: "Customers", icon: Users },
+                { id: "bills", label: "Bills", icon: FileText },
+                { id: "analytics", label: "Analytics", icon: BarChart3 },
+                { id: "settings", label: "Settings", icon: Settings },
+              ] as const
+            ).map((item) => {
+              const Icon = item.icon;
+              const isActive = activeTab === item.id;
 
-        {/* Right Column: Live Voice & Smart Kirana Receipt (58% width) */}
-        <div className="w-[58%] h-full overflow-hidden">
-          <LiveVisualizer
-            isRecording={isRecording}
-            onToggleRecording={toggleRecording}
-            transcript={transcript}
-            isFinalTranscript={isFinalTranscript}
-            extractedPayload={extractedPayload}
-            ttfaLatencyMs={ttfaLatencyMs}
-            spokenAudioPlaying={spokenAudioPlaying}
-            onSimulateSpeech={handleSimulateSpeech}
-            onConfirmAction={handleConfirmAction}
-            selectedCustomer={selectedCustomer}
-            onClearSelectedCustomer={() => setSelectedCustomer(null)}
-          />
-        </div>
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => setActiveTab(item.id)}
+                  className={`w-full py-2.5 px-1 rounded-2xl relative flex flex-col items-center gap-1 transition-all ${
+                    isActive ? "text-white" : "text-white/45 hover:text-white/80"
+                  }`}
+                >
+                  {isActive && (
+                    <motion.div
+                      layoutId="activeNavRailPill"
+                      className="absolute inset-0 bg-white/[0.1] border border-white/20 rounded-2xl shadow-[0_0_15px_rgba(255,255,255,0.1)]"
+                      transition={{ type: "spring", stiffness: 450, damping: 35 }}
+                    />
+                  )}
+                  <Icon className={`h-5 w-5 relative z-10 ${isActive ? "text-emerald-400" : ""}`} />
+                  <span className="text-[10px] font-semibold tracking-tight relative z-10">
+                    {item.label}
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Bottom Rail Badge: Powered by AI Voice Tech */}
+          <div className="p-2 rounded-2xl bg-white/[0.03] border border-white/[0.06] flex flex-col items-center text-center gap-1 w-full">
+            <span className="text-[8px] font-mono uppercase tracking-wider text-white/40 leading-none">
+              AI Voice
+            </span>
+            <div className="flex items-center gap-0.5 h-2">
+              <span className="w-0.5 h-2 bg-emerald-400 rounded-full animate-pulse" />
+              <span className="w-0.5 h-3 bg-cyan-400 rounded-full animate-pulse delay-75" />
+              <span className="w-0.5 h-1.5 bg-indigo-400 rounded-full animate-pulse delay-150" />
+            </div>
+          </div>
+        </nav>
+
+        {/* Tab Content Stage */}
+        <main className="flex-1 h-full overflow-hidden">
+          <AnimatePresence mode="wait">
+            {activeTab === "customers" && (
+              <motion.div
+                key="customers"
+                initial={{ opacity: 0, scale: 0.99 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.99 }}
+                transition={{ duration: 0.15 }}
+                className="h-full flex gap-4 overflow-hidden"
+              >
+                {/* Left Column (35% Width): Customer Directory Card */}
+                <div className="w-[35%] h-full overflow-hidden">
+                  <LedgerCards
+                    customers={customers}
+                    transactions={transactions}
+                    lastUpdatedCustomerId={lastUpdatedCustomerId}
+                    onCustomerSelect={(cust) => setSelectedCustomer(cust)}
+                    selectedCustomerId={selectedCustomer?.id}
+                    onAddCustomer={handleAddCustomer}
+                    onDeleteCustomer={handleDeleteCustomer}
+                    onUpdateCustomer={handleUpdateCustomer}
+                  />
+                </div>
+
+                {/* Right Column (65% Width): Stacked AI Call Stage & Smart Receipt */}
+                <div className="w-[65%] h-full overflow-hidden">
+                  <LiveVisualizer
+                    isRecording={isRecording}
+                    onToggleRecording={toggleRecording}
+                    transcript={transcript}
+                    isFinalTranscript={isFinalTranscript}
+                    extractedPayload={extractedPayload}
+                    ttfaLatencyMs={ttfaLatencyMs}
+                    spokenAudioPlaying={spokenAudioPlaying}
+                    onSimulateSpeech={handleSimulateSpeech}
+                    onConfirmAction={handleConfirmAction}
+                    selectedCustomer={selectedCustomer}
+                    onClearSelectedCustomer={() => setSelectedCustomer(null)}
+                  />
+                </div>
+              </motion.div>
+            )}
+
+            {activeTab === "bills" && (
+              <motion.div
+                key="bills"
+                initial={{ opacity: 0, scale: 0.99 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.99 }}
+                transition={{ duration: 0.15 }}
+                className="h-full w-full overflow-hidden"
+              >
+                <BillsTab
+                  customers={customers}
+                  transactions={transactions}
+                  onSelectCustomerBill={(cust) => {
+                    setSelectedCustomer(cust);
+                    setActiveTab("customers");
+                  }}
+                />
+              </motion.div>
+            )}
+
+            {activeTab === "analytics" && (
+              <motion.div
+                key="analytics"
+                initial={{ opacity: 0, scale: 0.99 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.99 }}
+                transition={{ duration: 0.15 }}
+                className="h-full w-full overflow-hidden"
+              >
+                <AnalyticsTab
+                  customers={customers}
+                  transactions={transactions}
+                  onSelectCustomer={(cust) => {
+                    setSelectedCustomer(cust);
+                    setActiveTab("customers");
+                  }}
+                />
+              </motion.div>
+            )}
+
+            {activeTab === "settings" && (
+              <motion.div
+                key="settings"
+                initial={{ opacity: 0, scale: 0.99 }}
+                animate={{ opacity: 1, scale: 1 }}
+                exit={{ opacity: 0, scale: 0.99 }}
+                transition={{ duration: 0.15 }}
+                className="h-full w-full overflow-hidden"
+              >
+                <SettingsTab />
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </main>
       </div>
     </div>
+  );
+}
+
+export default function Home() {
+  return (
+    <ThemeProvider>
+      <KhataFlowDashboard />
+    </ThemeProvider>
   );
 }

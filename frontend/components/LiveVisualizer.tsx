@@ -1,23 +1,19 @@
 "use client";
 
-import React, { useEffect, useRef, useState, useMemo } from "react";
+import React, { useEffect, useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Mic,
-  Volume2,
-  Clock,
   Sparkles,
   Receipt,
   FileCheck,
-  RotateCcw,
-  Check,
-  ChevronRight,
-  Zap,
-  Store,
+  CheckCircle2,
+  User,
+  Radio,
   X,
-  Edit3,
 } from "lucide-react";
 import { Customer } from "./LedgerCards";
+import { useTheme } from "@/context/ThemeContext";
 
 export interface LineItem {
   name: string;
@@ -59,13 +55,10 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
   extractedPayload,
   ttfaLatencyMs,
   spokenAudioPlaying,
-  onSimulateSpeech,
-  onConfirmAction,
   selectedCustomer,
   onClearSelectedCustomer,
 }) => {
-  const canvasRef = useRef<HTMLCanvasElement | null>(null);
-  const [confirmed, setConfirmed] = useState(false);
+  const { theme } = useTheme();
   const [customerBill, setCustomerBill] = useState<{
     customer: string;
     amount: number;
@@ -73,10 +66,7 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
   } | null>(null);
   const [loadingBill, setLoadingBill] = useState(false);
 
-  useEffect(() => {
-    setConfirmed(false);
-  }, [extractedPayload]);
-
+  // Fetch bill for selected customer
   useEffect(() => {
     if (selectedCustomer) {
       setLoadingBill(true);
@@ -121,56 +111,27 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
     }
     return {
       action: "ADD_CREDIT",
-      customer: "Ramesh",
-      amount: 430,
-      notes: "430 Udhaar",
+      customer: "Krishna",
+      amount: 200,
+      notes: "Chawal aur Maggi",
       items: [
-        { name: "Kirana Rashan", qty: 1, unit: "lot", unit_price: 430, total: 430 }
-      ]
+        { name: "Chawal", qty: 2, unit: "kg", unit_price: 60, total: 120 },
+        { name: "Maggi", qty: 1, unit: "pkt", unit_price: 20, total: 20 },
+        { name: "Doodh", qty: 1, unit: "ltr", unit_price: 60, total: 60 },
+      ],
     };
   }, [payload]);
 
-  // Live itemized line items: when a customer is clicked, display their real parsed bill items
   const lineItems: LineItem[] = useMemo(() => {
     if (selectedCustomer && customerBill?.items && customerBill.items.length > 0) {
       return customerBill.items;
     }
-
     if (primaryAction.items && primaryAction.items.length > 0) {
       return primaryAction.items;
     }
-
-    const text = transcript || primaryAction.notes || "";
-    if (text) {
-      const items: LineItem[] = [];
-      const matches = Array.from(
-        text.matchAll(/(\d+)\s*(?:(?:rs|rupaye|rupees|ka|ki)\s*)?([a-zA-Z\u0900-\u097F\s]+)/gi)
-      );
-
-      for (const m of matches) {
-        const price = parseFloat(m[1]);
-        const rawName = m[2]
-          .replace(/\b(kharidi|kharida|udhaar|likh|likho|aur|and|mein|me|dalo|do|to|total|bhai|rupaye|rs)\b/gi, "")
-          .trim();
-        if (rawName.length >= 2) {
-          items.push({
-            name: rawName.charAt(0).toUpperCase() + rawName.slice(1),
-            qty: 1,
-            unit: "pkt",
-            unit_price: price,
-            total: price,
-          });
-        }
-      }
-
-      if (items.length > 0) return items;
-    }
-
-    const tot = selectedCustomer ? selectedCustomer.total_balance : primaryAction.amount || 430;
-    return [
-      { name: "Kirana Items", qty: 1, unit: "lot", unit_price: tot, total: tot }
-    ];
-  }, [primaryAction, transcript, selectedCustomer, customerBill]);
+    const tot = selectedCustomer ? selectedCustomer.total_balance : primaryAction.amount || 200;
+    return [{ name: "Kirana Items", qty: 1, unit: "lot", unit_price: tot, total: tot }];
+  }, [primaryAction, selectedCustomer, customerBill]);
 
   const grandTotal = useMemo(() => {
     if (selectedCustomer && customerBill) {
@@ -179,419 +140,241 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
     if (lineItems.length > 0) {
       return lineItems.reduce((acc, curr) => acc + (curr.total || 0), 0);
     }
-    return primaryAction.amount || 430;
+    return primaryAction.amount || 200;
   }, [lineItems, primaryAction, selectedCustomer, customerBill]);
 
-  // Multi-frequency Audio Equalizer Waveform
-  useEffect(() => {
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    let animId: number;
-    let step = 0;
-
-    const render = () => {
-      const width = canvas.width;
-      const height = canvas.height;
-      ctx.clearRect(0, 0, width, height);
-
-      const barCount = 32;
-      const spacing = 4;
-      const totalSpacing = (barCount - 1) * spacing;
-      const barWidth = Math.max(3, (width - 40 - totalSpacing) / barCount);
-      const startX = (width - (barCount * barWidth + totalSpacing)) / 2;
-
-      for (let i = 0; i < barCount; i++) {
-        const x = startX + i * (barWidth + spacing);
-        let barHeight = 6;
-
-        if (isRecording) {
-          const sine = Math.sin(step * 0.1 + i * 0.35);
-          barHeight = 10 + Math.abs(sine) * 36;
-        } else if (spokenAudioPlaying) {
-          const sine = Math.cos(step * 0.15 + i * 0.4);
-          barHeight = 8 + Math.abs(sine) * 34;
-        } else {
-          barHeight = 5 + Math.sin(i * 0.2) * 2;
-        }
-
-        const y = (height - barHeight) / 2;
-        const gradient = ctx.createLinearGradient(0, y, 0, y + barHeight);
-
-        if (isRecording) {
-          gradient.addColorStop(0, "#34D399");
-          gradient.addColorStop(1, "#059669");
-        } else if (spokenAudioPlaying) {
-          gradient.addColorStop(0, "#818CF8");
-          gradient.addColorStop(1, "#4F46E5");
-        } else {
-          gradient.addColorStop(0, "rgba(255, 255, 255, 0.2)");
-          gradient.addColorStop(1, "rgba(255, 255, 255, 0.05)");
-        }
-
-        ctx.fillStyle = gradient;
-        ctx.beginPath();
-        ctx.roundRect(x, y, barWidth, barHeight, [barWidth / 2]);
-        ctx.fill();
-      }
-
-      step++;
-      animId = requestAnimationFrame(render);
-    };
-
-    render();
-    return () => cancelAnimationFrame(animId);
-  }, [isRecording, spokenAudioPlaying]);
+  // Orb State
+  const orbState = isRecording
+    ? "listening"
+    : spokenAudioPlaying
+    ? "speaking"
+    : transcript && !isFinalTranscript
+    ? "thinking"
+    : "idle";
 
   return (
-    <div className="h-full flex flex-col space-y-4 overflow-y-auto pr-1 select-none">
-      {/* Top Card: Voice Waveform & Live STT Stream */}
-      <div className="glass-panel p-5 relative overflow-hidden flex flex-col gap-3 group shrink-0">
-        <div
-          className={`absolute -top-14 left-1/2 -translate-x-1/2 w-80 h-28 blur-3xl rounded-full pointer-events-none transition-all duration-700 ${
-            isRecording
-              ? "bg-emerald-500/20"
-              : spokenAudioPlaying
-              ? "bg-indigo-500/20"
-              : "bg-emerald-500/5"
-          }`}
-        />
-
-        <div className="flex items-center justify-between z-10">
-          <div className="flex items-center gap-2.5">
-            <div
-              className={`h-8 w-8 rounded-xl flex items-center justify-center border transition-all ${
-                isRecording
-                  ? "bg-emerald-500/20 border-emerald-500/40 text-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.3)] animate-pulse"
-                  : spokenAudioPlaying
-                  ? "bg-indigo-500/20 border-indigo-500/40 text-indigo-400 animate-pulse"
-                  : "bg-white/[0.04] border-white/[0.08] text-white/50"
-              }`}
-            >
-              {spokenAudioPlaying ? (
-                <Volume2 className="h-4 w-4" />
-              ) : (
-                <Mic className="h-4 w-4" />
-              )}
+    <div className="h-full w-full flex flex-col gap-3 overflow-hidden select-none">
+      {/* Top Card (48% Height): Luminous 3D AI Call Stage with Floating Bubbles */}
+      <div
+        className="h-[48%] rounded-3xl relative overflow-hidden flex flex-col justify-between p-4"
+        style={{
+          backgroundColor: `rgba(17, 21, 34, ${theme.glassOpacity})`,
+          backdropFilter: `blur(${theme.glassBlur}px)`,
+          WebkitBackdropFilter: `blur(${theme.glassBlur}px)`,
+          border: "1px solid rgba(255, 255, 255, 0.08)",
+          boxShadow: "inset 0 1px 0 0 rgba(255, 255, 255, 0.08), 0 20px 50px rgba(0, 0, 0, 0.5)",
+        }}
+      >
+        {/* Header bar */}
+        <div className="flex items-center justify-between z-10 shrink-0">
+          <div className="flex items-center gap-2">
+            <div className="h-7 w-7 rounded-xl bg-white/[0.06] border border-white/10 flex items-center justify-center text-emerald-400">
+              <Radio className="h-3.5 w-3.5 animate-pulse" />
             </div>
             <div>
-              <div className="text-xs font-semibold tracking-wide text-white flex items-center gap-2">
-                <span>INDIC VOICE LEDGER ENGINE</span>
-                {isRecording && (
-                  <span className="flex items-center gap-1 text-[10px] text-emerald-400 font-mono font-medium px-1.5 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/20">
-                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-ping" />
-                    LISTENING
-                  </span>
-                )}
-                {spokenAudioPlaying && (
-                  <span className="flex items-center gap-1 text-[10px] text-indigo-400 font-mono font-medium px-1.5 py-0.5 rounded-full bg-indigo-500/10 border border-indigo-500/20">
-                    <span className="h-1.5 w-1.5 rounded-full bg-indigo-400 animate-pulse" />
-                    SPEAKING REPLY
-                  </span>
-                )}
-              </div>
-              <p className="text-[11px] text-white/40">
-                Natural Indic Voice Recognition • Real-time Spoken Correction
-              </p>
+              <span className="text-xs font-bold text-white tracking-tight flex items-center gap-1.5">
+                AI Voice Companion <span className="text-[10px] font-mono text-white/40">• Spatial Call Mode</span>
+              </span>
             </div>
           </div>
 
           <div className="flex items-center gap-2">
             {ttfaLatencyMs !== null && (
-              <div className="flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-white/[0.04] border border-white/[0.08] text-[11px] font-mono text-white/70">
-                <Clock className="h-3 w-3 text-emerald-400" />
-                <span>{ttfaLatencyMs} ms</span>
-              </div>
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-white/[0.04] border border-white/10 text-white/60">
+                {ttfaLatencyMs} ms
+              </span>
             )}
-            <div className="px-2.5 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/20 text-[10px] font-mono text-emerald-300 font-medium">
-              16kHz PCM
-            </div>
-          </div>
-        </div>
-
-        {/* Dynamic Multi-Bar Waveform Canvas */}
-        <div className="w-full h-14 relative flex items-center justify-center my-0.5">
-          <canvas
-            ref={canvasRef}
-            width={600}
-            height={56}
-            className="w-full h-full block"
-          />
-        </div>
-
-        {/* Live Transcription Bubble */}
-        <div className="relative rounded-2xl p-3.5 bg-black/40 border border-white/[0.06] shadow-inner">
-          <div className="flex items-center justify-between mb-1.5">
-            <span className="text-[10px] font-mono uppercase tracking-wider text-white/40">
-              Live Speech Transcript
-            </span>
             <span
-              className={`text-[10px] font-mono font-semibold px-2 py-0.5 rounded-md ${
-                isFinalTranscript
-                  ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
-                  : transcript
-                  ? "bg-amber-500/20 text-amber-300 border border-amber-500/30 animate-pulse"
-                  : "text-white/30"
+              className={`text-[9px] font-mono px-2 py-0.5 rounded-full font-bold uppercase ${
+                orbState === "listening"
+                  ? "bg-rose-500/20 text-rose-300 border border-rose-500/30 animate-pulse"
+                  : orbState === "speaking"
+                  ? "bg-purple-500/20 text-purple-300 border border-purple-500/30 animate-pulse"
+                  : "bg-emerald-500/15 text-emerald-300 border border-emerald-500/30"
               }`}
             >
-              {isFinalTranscript
-                ? "FINAL"
-                : transcript
-                ? "STREAMING..."
-                : "READY"}
+              {orbState}
             </span>
           </div>
+        </div>
 
-          <p
-            className={`text-sm leading-relaxed font-sans transition-all ${
-              transcript ? "text-white/95 font-medium" : "text-white/30 italic"
-            }`}
+        {/* Centerpiece: Living 3D Glowing Emerald-Cyan-Violet Plasma Orb */}
+        <div className="relative flex-1 flex items-center justify-center my-0.5 min-h-0">
+          {/* Concentric Soft Light Rings */}
+          <motion.div
+            animate={{
+              scale: orbState === "listening" ? [1, 1.25, 1] : [1, 1.08, 1],
+              opacity: [0.15, 0.35, 0.15],
+            }}
+            transition={{ repeat: Infinity, duration: 3.5, ease: "easeInOut" }}
+            className="absolute w-40 h-40 rounded-full border border-emerald-400/20 pointer-events-none"
+          />
+          <motion.div
+            animate={{
+              scale: orbState === "speaking" ? [1, 1.35, 1] : [1, 1.15, 1],
+              opacity: [0.1, 0.25, 0.1],
+            }}
+            transition={{ repeat: Infinity, duration: 4.5, ease: "easeInOut" }}
+            className="absolute w-52 h-52 rounded-full border border-cyan-400/15 pointer-events-none"
+          />
+
+          {/* Core 3D Plasma Orb */}
+          <motion.div
+            animate={{
+              rotate: [0, 180, 360],
+              scale: orbState === "listening" ? [1, 1.12, 0.98, 1] : orbState === "speaking" ? [1, 1.15, 1] : [1, 1.04, 1],
+            }}
+            transition={{ repeat: Infinity, duration: 8, ease: "easeInOut" }}
+            className="w-20 h-20 rounded-full bg-gradient-to-tr from-emerald-400 via-teal-300 to-indigo-500 shadow-[0_0_50px_rgba(52,211,153,0.5)] flex items-center justify-center relative cursor-pointer"
+            onClick={onToggleRecording}
           >
-            {transcript
-              ? `“${transcript}”`
-              : "Tap 'Bol Kar Khata Likhein' above or speak: 'Ramesh ka 340 udhaar' or 'Nahi, 430'..."}
+            <div className="absolute inset-1 rounded-full bg-gradient-to-br from-cyan-300 via-emerald-500 to-violet-600 blur-[2px] opacity-90" />
+            <div className="relative z-10 text-slate-950 font-bold">
+              {isRecording ? <Mic className="h-5 w-5 text-white animate-pulse" /> : <Sparkles className="h-5 w-5 text-slate-950" />}
+            </div>
+          </motion.div>
+
+          {/* Floating Glass Chat Bubble: Left (AI Voice status) */}
+          <motion.div
+            initial={{ opacity: 0, x: -10 }}
+            animate={{ opacity: 1, x: 0 }}
+            className="absolute left-1 top-2 max-w-[175px] p-2 rounded-2xl bg-white/[0.06] backdrop-blur-xl border border-white/10 shadow-lg text-xs"
+          >
+            <div className="flex items-center gap-1.5 text-[9px] text-emerald-400 font-mono mb-0.5">
+              <Sparkles className="h-2.5 w-2.5" /> AI Saathi
+            </div>
+            <p className="text-white/80 text-[10px] leading-tight">
+              {selectedCustomer
+                ? `${selectedCustomer.name} ji ka ₹${selectedCustomer.total_balance} baaki hai...`
+                : "Krishna ji ka ₹120 baaki hai..."}
+            </p>
+          </motion.div>
+
+          {/* Floating Glass Chat Bubble: Top-Right (User Speech) */}
+          <motion.div
+            initial={{ opacity: 0, x: 10 }}
+            animate={{ opacity: 1, x: 0 }}
+            className="absolute right-1 top-1 max-w-[185px] p-2 rounded-2xl bg-white/[0.06] backdrop-blur-xl border border-white/10 shadow-lg text-xs"
+          >
+            <div className="flex items-center gap-1.5 text-[9px] text-cyan-400 font-mono mb-0.5">
+              <User className="h-2.5 w-2.5" /> Shopkeeper
+            </div>
+            <p className="text-white font-medium text-[10px] leading-tight truncate">
+              {transcript ? `“${transcript}”` : "“2 kg chawal likh do...”"}
+            </p>
+          </motion.div>
+
+          {/* Floating Glass Chat Bubble: Bottom-Right (AI Confirmation) */}
+          <motion.div
+            initial={{ opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="absolute right-2 bottom-0 p-1.5 px-2.5 rounded-xl bg-emerald-500/20 backdrop-blur-xl border border-emerald-500/30 shadow-lg flex items-center gap-1.5 text-xs"
+          >
+            <CheckCircle2 className="h-3 w-3 text-emerald-300" />
+            <span className="text-[10px] text-white font-semibold">
+              Ho gaya! Kul ₹{grandTotal}
+            </span>
+          </motion.div>
+        </div>
+
+        {/* Bottom transcript bar */}
+        <div className="z-10 text-center shrink-0">
+          <p className="text-[10px] text-white/50 truncate">
+            {transcript ? `Transcript: "${transcript}"` : "Tap mic or say: 'Krishna ka 2 kg chawal likh do'"}
           </p>
         </div>
       </div>
 
-      {/* Main Stage: Itemized Smart Kirana Receipt Card */}
-      <div className="glass-panel p-5 relative overflow-hidden flex flex-col shadow-2xl shrink-0">
-        <Receipt className="absolute -bottom-6 -right-6 h-36 w-36 text-white/[0.02] pointer-events-none rotate-12" />
-
+      {/* Bottom Card (52% Height): Smart Kirana Receipt */}
+      <div
+        className="h-[52%] rounded-3xl relative overflow-hidden flex flex-col justify-between p-4"
+        style={{
+          backgroundColor: `rgba(17, 21, 34, ${theme.glassOpacity})`,
+          backdropFilter: `blur(${theme.glassBlur}px)`,
+          WebkitBackdropFilter: `blur(${theme.glassBlur}px)`,
+          border: "1px solid rgba(255, 255, 255, 0.08)",
+          boxShadow: "inset 0 1px 0 0 rgba(255, 255, 255, 0.08), 0 20px 50px rgba(0, 0, 0, 0.5)",
+        }}
+      >
         {/* Receipt Header */}
-        <div className="flex items-center justify-between pb-3 border-b border-white/[0.08] shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="h-9 w-9 rounded-xl bg-gradient-to-tr from-emerald-500/20 to-teal-500/20 border border-emerald-500/30 flex items-center justify-center text-emerald-400 shadow-[0_0_15px_rgba(52,211,153,0.15)]">
-              <Store className="h-4 w-4" />
+        <div className="flex items-center justify-between pb-2 border-b border-white/[0.08] shrink-0">
+          <div className="flex items-center gap-2">
+            <div className="h-7 w-7 rounded-xl bg-emerald-500/10 border border-emerald-500/20 flex items-center justify-center text-emerald-400">
+              <Receipt className="h-3.5 w-3.5" />
             </div>
             <div>
-              <div className="flex items-center gap-2">
-                <h3 className="text-sm font-bold text-white tracking-tight">
-                  {selectedCustomer ? `${selectedCustomer.name} - Ledger History` : "Live Itemized Kirana Receipt"}
-                </h3>
-                <span className="text-[10px] font-mono px-2 py-0.2 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 font-semibold flex items-center gap-1">
-                  <Sparkles className="h-2.5 w-2.5" /> AI PARSED
-                </span>
-              </div>
-              <p className="text-[11px] text-white/50">
-                {selectedCustomer
-                  ? "Customer transaction history ledger"
-                  : "Automatic bill calculation & correction engine"}
-              </p>
+              <h3 className="text-xs font-bold text-white tracking-tight">Smart Kirana Receipt</h3>
+              <span className="text-[10px] text-white/40 font-mono">
+                {selectedCustomer ? `${selectedCustomer.name} (#KF-${selectedCustomer.id})` : "#KF-LIVE"}
+              </span>
             </div>
           </div>
 
-          {selectedCustomer ? (
-            <button
-              onClick={onClearSelectedCustomer}
-              className="px-2.5 py-1 rounded-xl bg-white/[0.05] hover:bg-white/[0.1] text-white/60 text-xs flex items-center gap-1 transition-colors"
-            >
-              <X className="h-3.5 w-3.5" /> Close History
-            </button>
-          ) : (
-            <span
-              className={`text-[10px] font-mono font-bold px-2 py-0.5 rounded-lg border ${
-                primaryAction.action === "ADD_CREDIT"
-                  ? "bg-rose-500/15 border-rose-500/30 text-rose-300"
-                  : primaryAction.action === "CORRECTION"
-                  ? "bg-amber-500/15 border-amber-500/30 text-amber-300"
-                  : "bg-emerald-500/15 border-emerald-500/30 text-emerald-300"
-              }`}
-            >
-              {primaryAction.action === "ADD_CREDIT"
-                ? "UDHAAR ENTRY"
-                : primaryAction.action === "CORRECTION"
-                ? "SUDHARA / CORRECTION"
-                : "JAMA / CHUKTA"}
-            </span>
-          )}
-        </div>
-
-        {/* Customer & Timestamp Info Strip */}
-        <div className="grid grid-cols-2 gap-3 py-2.5 border-b border-white/[0.06] text-xs shrink-0">
-          <div>
-            <span className="text-[10px] text-white/40 block font-mono uppercase tracking-wider mb-0.5">
-              Customer Profile
-            </span>
-            <span className="text-white font-semibold text-xs flex items-center gap-1.5">
-              {selectedCustomer ? selectedCustomer.name : primaryAction.customer || "Ramesh"}
-              <span className="text-[10px] text-emerald-400 font-mono font-normal">
-                (Verified)
-              </span>
-            </span>
-          </div>
-          <div className="text-right">
-            <span className="text-[10px] text-white/40 block font-mono uppercase tracking-wider mb-0.5">
-              Invoice Reference
-            </span>
-            <span className="text-white/80 font-mono text-xs">
-              #KF-
-              {selectedCustomer ? selectedCustomer.id : "8421"}
+          <div className="flex items-center gap-2">
+            {selectedCustomer && (
+              <button
+                onClick={onClearSelectedCustomer}
+                className="px-2 py-0.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-white/60 text-[10px] flex items-center gap-1 transition-colors"
+              >
+                <X className="h-3 w-3" /> Clear Selection
+              </button>
+            )}
+            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 font-semibold flex items-center gap-1">
+              <Sparkles className="h-2.5 w-2.5" /> Bill Generated
             </span>
           </div>
         </div>
 
-        {/* Itemized Line Items Table (Always visible for live speech or selected customer) */}
-        <div className="py-2.5 flex flex-col justify-start">
+        {/* 4-Column Table */}
+        <div className="flex-1 overflow-hidden flex flex-col pt-1.5 min-h-0">
           <div className="grid grid-cols-12 text-[10px] font-mono uppercase tracking-wider text-white/40 pb-1.5 border-b border-white/[0.04] shrink-0">
             <span className="col-span-5">Item</span>
             <span className="col-span-2 text-center">Qty</span>
-            <span className="col-span-2 text-right">Rate (₹)</span>
-            <span className="col-span-3 text-right">Total (₹)</span>
+            <span className="col-span-2 text-right">Rate</span>
+            <span className="col-span-3 text-right">Total</span>
           </div>
 
-          <div className="space-y-1.5 pt-1.5 overflow-y-auto max-h-40 pr-1">
+          <div className="flex-1 overflow-y-auto space-y-1 pt-1 pr-1">
             {loadingBill ? (
               <div className="py-6 text-center text-xs text-white/40">Loading customer bill...</div>
             ) : lineItems.length === 0 ? (
               <div className="py-6 text-center text-xs text-white/40">No items on this bill.</div>
             ) : (
-              <AnimatePresence>
-                {lineItems.map((item, idx) => (
-                  <motion.div
-                    key={`${item.name}-${idx}`}
-                    initial={{ opacity: 0, y: 4 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ delay: idx * 0.03 }}
-                    className="grid grid-cols-12 items-center text-xs py-1 hover:bg-white/[0.02] rounded px-1 -mx-1 transition-colors"
-                  >
-                    <div className="col-span-5 flex items-center gap-1.5 truncate">
-                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400/80 shrink-0" />
-                      <span className="text-white/90 font-medium truncate">{item.name}</span>
-                    </div>
-                    <span className="col-span-2 text-center text-white/60 font-mono text-[11px]">
-                      {item.qty} {item.unit || "pkt"}
-                    </span>
-                    <span className="col-span-2 text-right text-white/60 font-mono tabular-nums text-[11px]">
-                      ₹{item.unit_price}
-                    </span>
-                    <span className="col-span-3 text-right text-white font-mono font-semibold tabular-nums">
-                      ₹{item.total}
-                    </span>
-                  </motion.div>
-                ))}
-              </AnimatePresence>
+              lineItems.map((item, idx) => (
+                <div
+                  key={`${item.name}-${idx}`}
+                  className="grid grid-cols-12 items-center text-xs py-1 px-1 rounded hover:bg-white/[0.03] transition-colors"
+                >
+                  <div className="col-span-5 flex items-center gap-1.5 truncate">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shrink-0" />
+                    <span className="text-white/90 font-medium truncate">{item.name}</span>
+                  </div>
+                  <span className="col-span-2 text-center text-white/60 font-mono text-[11px]">
+                    {item.qty} {item.unit || "pkt"}
+                  </span>
+                  <span className="col-span-2 text-right text-white/60 font-mono tabular-nums text-[11px]">
+                    ₹{item.unit_price}
+                  </span>
+                  <span className="col-span-3 text-right text-white font-mono font-semibold tabular-nums">
+                    ₹{item.total}
+                  </span>
+                </div>
+              ))
             )}
           </div>
+        </div>
 
-          <div className="my-2.5 border-b border-dashed border-white/15 shrink-0" />
-
-          <div className="space-y-1 text-xs shrink-0">
-            <div className="flex justify-between items-baseline pt-0.5">
-              <div>
-                <span className="text-xs font-bold text-white tracking-wide block">
-                  Grand Total (Kul Rashi)
-                </span>
-                <span className="text-[10px] text-white/40">
-                  {selectedCustomer
-                    ? `Kul Baaki for ${selectedCustomer.name}`
-                    : "Added to Customer Ledger Balance"}
-                </span>
-              </div>
-              <span className="text-2xl font-extrabold font-mono text-emerald-400 tabular-nums">
-                ₹{grandTotal.toLocaleString("en-IN")}
-              </span>
+        {/* Footer Banner: Full-width rich emerald gradient bar with Grand Total */}
+        <div className="pt-2 shrink-0">
+          <div className="p-3 rounded-2xl bg-gradient-to-r from-emerald-600 via-teal-600 to-emerald-500 shadow-lg flex items-center justify-between text-slate-950">
+            <div className="flex items-center gap-2">
+              <FileCheck className="h-4 w-4" />
+              <span className="font-bold text-xs tracking-wide uppercase">Grand Total</span>
             </div>
+            <span className="text-xl font-extrabold font-mono tabular-nums tracking-tight">
+              ₹{grandTotal.toLocaleString("en-IN")}
+            </span>
           </div>
-        </div>
-
-        {/* Action Buttons */}
-        {!selectedCustomer && (
-          <div className="pt-3 border-t border-white/[0.08] flex items-center gap-3 shrink-0">
-            <button
-              onClick={() => {
-                setConfirmed(true);
-                if (onConfirmAction) onConfirmAction(primaryAction);
-              }}
-              disabled={confirmed}
-              className={`flex-1 py-2.5 px-4 rounded-2xl font-bold text-xs tracking-wide flex items-center justify-center gap-2 transition-all shadow-lg ${
-                confirmed
-                  ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 cursor-default"
-                  : "bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 shadow-emerald-500/25 active:scale-95"
-              }`}
-            >
-              {confirmed ? (
-                <>
-                  <Check className="h-4 w-4" /> Khata Updated Successfully
-                </>
-              ) : (
-                <>
-                  <FileCheck className="h-4 w-4" /> Save to Khata
-                </>
-              )}
-            </button>
-
-            <button
-              onClick={() => setConfirmed(false)}
-              className="px-4 py-2.5 rounded-2xl bg-white/[0.04] hover:bg-rose-500/10 border border-white/[0.08] hover:border-rose-500/30 text-white/50 hover:text-rose-400 text-xs font-semibold flex items-center gap-1.5 transition-all"
-              title="Clear Entry"
-            >
-              <RotateCcw className="h-3.5 w-3.5" />
-              <span>Clear</span>
-            </button>
-          </div>
-        )}
-      </div>
-
-      {/* Quick Voice Simulation Glass Chips */}
-      <div className="glass-panel p-4 flex flex-col gap-2.5 shrink-0">
-        <div className="flex items-center justify-between">
-          <span className="text-[11px] font-bold uppercase tracking-wider text-white/50 flex items-center gap-1.5">
-            <Zap className="h-3.5 w-3.5 text-amber-400" />
-            Quick Indic Voice Scenarios
-          </span>
-          <span className="text-[10px] text-white/40">One-click testing</span>
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          {[
-            {
-              label: "New Customer: 'Mukesh Patel banao'",
-              text: "भाई, एक काम करो, नया ग्राहक बनाओ। इनका नाम होगा मुकेश पटेल।",
-              type: "create",
-            },
-            {
-              label: "Spoken Correction: 'Nahi, 430 tha'",
-              text: "नहीं 340 नहीं, 430 था",
-              type: "correction",
-            },
-            {
-              label: "Rename: 'Ramesh ka naam Gupta ji karo'",
-              text: "रमेश का नाम बदल कर रमेश गुप्ता कर दो",
-              type: "update",
-            },
-            {
-              label: "Itemized: 200 Maida + 50 Maggi",
-              text: "पूजा ने 200 रुपये का मैदा खरीदा, 50 रुपये की Maggi खरीदी। उधार में डाल दो, तो total को calculate करके।",
-              type: "udhaar",
-            },
-          ].map((chip, i) => (
-            <button
-              key={i}
-              onClick={() => onSimulateSpeech(chip.text)}
-              className="text-left p-2.5 rounded-xl bg-white/[0.02] hover:bg-white/[0.06] border border-white/[0.06] hover:border-white/20 transition-all flex items-center justify-between group active:scale-[0.98]"
-            >
-              <div className="flex items-center gap-2 overflow-hidden">
-                <span
-                  className={`h-2 w-2 rounded-full shrink-0 ${
-                    chip.type === "create"
-                      ? "bg-emerald-400"
-                      : chip.type === "update"
-                      ? "bg-indigo-400"
-                      : chip.type === "correction"
-                      ? "bg-amber-400"
-                      : "bg-rose-400"
-                  }`}
-                />
-                <span className="text-xs text-white/80 group-hover:text-white font-medium truncate">
-                  {chip.label}
-                </span>
-              </div>
-              <ChevronRight className="h-3.5 w-3.5 text-white/30 group-hover:text-white/80 group-hover:translate-x-0.5 transition-all shrink-0" />
-            </button>
-          ))}
         </div>
       </div>
     </div>
