@@ -32,6 +32,7 @@ class ActionItem(BaseModel):
     date: Optional[str] = Field(default="today", description="today, yesterday, specific date")
     notes: Optional[str] = Field(default="", description="Items or context, e.g., 200 Maida + 50 Maggi")
     target: Optional[str] = Field(default="total", description="total, today, last_week for query")
+    target_item: Optional[str] = Field(default=None, description="Specific item name being corrected or updated, e.g., Ande")
     items: List[LineItem] = Field(default_factory=list, description="Itemized bill items")
 
 class IntentResponse(BaseModel):

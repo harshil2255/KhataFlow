@@ -190,10 +190,15 @@ async def process_action_item(action: ActionItem) -> tuple[str, str, bool]:
             )
             return f"{matched['name']} ka {int(amt)} rupaye darj ho gaya. Ab total {int(new_bal)} rupaye baaki hai.", "RECORDED", False
 
-    # 1. Spoken correction ("nahi, 430")
+    # 1. Spoken correction ("nahi, 430" or "eggs were worth 8 each")
     if act == "CORRECTION":
         if action.amount is not None:
-            updated_info, msg = await ledger_manager.handle_spoken_correction(action.amount)
+            updated_info, msg = await ledger_manager.handle_spoken_correction(
+                new_amount=action.amount,
+                target_customer=action.customer,
+                target_item=action.target_item,
+                updated_note=action.notes
+            )
             if updated_info:
                 return msg, "CORRECTED", False
             return msg or "Koi purana record nahi mila jise sudhara ja sake.", "ERROR", False
@@ -313,7 +318,16 @@ async def process_action_item(action: ActionItem) -> tuple[str, str, bool]:
                 note = action.notes or "Udhaar chukta"
         else:
             amt = action.amount or 0.0
-            note = action.notes or ("Udhaar samaan" if act == "ADD_CREDIT" else "Udhaar chukta")
+            if action.items and len(action.items) > 0 and act == "ADD_CREDIT":
+                # Build high-fidelity itemized note: e.g. "10 Ande (7.5rs each)" or "1 Tel (50rs each), 1 Maggi (60rs each)"
+                item_strs = []
+                for it in action.items:
+                    q = f"{it.qty:g}"
+                    u = f"{it.unit_price:g}"
+                    item_strs.append(f"{q} {it.name} ({u}rs each)")
+                note = ", ".join(item_strs)
+            else:
+                note = action.notes or ("Udhaar samaan" if act == "ADD_CREDIT" else "Udhaar chukta")
 
         tx_type = "CREDIT" if act == "ADD_CREDIT" else "PAYMENT"
 

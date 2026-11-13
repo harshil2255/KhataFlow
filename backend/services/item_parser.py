@@ -12,15 +12,15 @@ def extract_line_items_from_history(transactions: List[Dict[str, Any]], total_ba
     # Filter credit transactions
     credit_txs = [t for t in transactions if t.get("type") == "CREDIT" and t.get("amount", 0) > 0]
     
-    # Regex 1: "10 packet Maggi (10rs each), 10 packet Maida (100rs total), aur 5 packet Patakhe (160rs total)"
+    # Regex 1: "10 packet Maggi (10rs each)", "10 ande (7.5rs each)", or "(100rs total)"
     p_parens = re.compile(
-        r'(\d+)\s*(?:packet|pkt|kg|pieces|piece|litres|l|gm)?\s*([a-zA-Z\u0900-\u097F\s]+?)\s*\(\s*(\d+)\s*(?:rs|rupaye)?\s*(each|total)?\s*\)',
+        r'(\d+(?:\.\d+)?)\s*(?:packet|pkt|kg|pieces?|pcs?|piece|litres|l|gm)?\s*([a-zA-Z\u0900-\u097F\s]+?)\s*\(\s*(\d+(?:\.\d+)?)\s*(?:rs|rupaye)?\s*(each|total)?\s*\)',
         re.IGNORECASE
     )
     
-    # Regex 2: "50 pieces of Maggi worth 10 rupees each"
+    # Regex 2: "10 pieces of eggs worth 7.5 rupees each"
     p_worth = re.compile(
-        r'(\d+)\s*(?:pieces?|packets?|pkts?|kg)?\s*(?:of\s*)?([a-zA-Z\u0900-\u097F\s]+?)\s*(?:worth\s*)?(\d+)\s*(?:rs|rupees|rupaye)?\s*(each)?',
+        r'(\d+(?:\.\d+)?)\s*(?:pieces?|packets?|pkts?|pcs?|kg)?\s*(?:of\s*)?([a-zA-Z\u0900-\u097F\s]+?)\s*(?:worth\s*)?(\d+(?:\.\d+)?)\s*(?:rs|rupees|rupaye)?\s*(each)?',
         re.IGNORECASE
     )
     
@@ -104,8 +104,26 @@ def extract_line_items_from_history(transactions: List[Dict[str, Any]], total_ba
             items.extend(extracted_p)
             continue
 
+        # If note has multiple items separated by comma (e.g. "Tel, Maggi, Chocolate")
+        # Split and preserve them as individual line items
+        parts = [p.strip() for p in re.sub(r'\[.*?\]', '', note).split(',') if p.strip()]
+        if len(parts) > 1 and amt > 0:
+            each_price = round(amt / len(parts), 2)
+            for p in parts:
+                clean_p = re.sub(r'^[a-zA-Z\s]+ ne ', '', p).strip()
+                if clean_p:
+                    items.append({
+                        "name": clean_p.title(),
+                        "qty": 1.0,
+                        "unit": "pkt",
+                        "unit_price": each_price,
+                        "total": each_price
+                    })
+            continue
+
         # Single transaction fallback without broken division
-        clean_note = re.sub(r'^[a-zA-Z\s]+ ne ', '', note).replace('khareeda', '').replace('khareede', '').strip()
+        clean_note = re.sub(r'^[a-zA-Z\s]+ ne ', '', note)
+        clean_note = re.sub(r'\[.*?\]', '', clean_note).replace('khareeda', '').replace('khareede', '').strip()
         if not clean_note or len(clean_note) < 2:
             clean_note = "Kirana Samaan"
         items.append({

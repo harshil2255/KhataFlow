@@ -219,31 +219,75 @@ class LedgerManager:
                 tx_row = await cur.fetchone()
                 return dict(tx_row), new_bal
 
-    async def handle_spoken_correction(self, new_amount: float) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+    async def handle_spoken_correction(
+        self,
+        new_amount: float,
+        target_customer: Optional[str] = None,
+        target_item: Optional[str] = None,
+        updated_note: Optional[str] = None
+    ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
         """
-        Handles spoken correction like "Nahi 340 nahi, 430 tha"
-        Rolls back the difference from the latest active transaction atomically.
+        Handles spoken correction like "Nahi 340 nahi, 430 tha" or "eggs were worth 8 each".
+        Finds the exact matching transaction (by target_customer, target_item, or latest)
+        and updates it atomically without zeroing out or corrupting unrelated transactions.
         """
-        if not self._last_transaction_id:
-            return None, "Koi purani transaction nahi mili jise sudhara ja sake."
-
         async with aiosqlite.connect(self.db_path) as db:
             db.row_factory = aiosqlite.Row
-            async with db.execute("""
-                SELECT t.*, c.name as customer_name, c.total_balance
-                FROM transactions t
-                JOIN customers c ON t.customer_id = c.id
-                WHERE t.id = ?
-            """, (self._last_transaction_id,)) as cur:
-                tx = await cur.fetchone()
-                if not tx:
-                    return None, "Transaction record nahi mila."
+            target_tx = None
 
-            cust_id = tx["customer_id"]
-            cust_name = tx["customer_name"]
-            old_amount = tx["amount"]
-            tx_type = tx["type"]
-            current_bal = tx["total_balance"]
+            # 1. If target_customer & target_item are provided, search for that specific customer's transaction containing the item
+            if target_customer:
+                cand_custs = await self.find_customers_by_name(target_customer)
+                if cand_custs:
+                    c_id = cand_custs[0]["id"]
+                    if target_item:
+                        async with db.execute("""
+                            SELECT t.*, c.name as customer_name, c.total_balance
+                            FROM transactions t
+                            JOIN customers c ON t.customer_id = c.id
+                            WHERE t.customer_id = ? AND LOWER(t.notes) LIKE LOWER(?)
+                            ORDER BY t.id DESC LIMIT 1
+                        """, (c_id, f"%{target_item}%")) as cur:
+                            target_tx = await cur.fetchone()
+                    
+                    if not target_tx:
+                        async with db.execute("""
+                            SELECT t.*, c.name as customer_name, c.total_balance
+                            FROM transactions t
+                            JOIN customers c ON t.customer_id = c.id
+                            WHERE t.customer_id = ?
+                            ORDER BY t.id DESC LIMIT 1
+                        """, (c_id,)) as cur:
+                            target_tx = await cur.fetchone()
+
+            # 2. Fallback to self._last_transaction_id or latest transaction
+            if not target_tx and self._last_transaction_id:
+                async with db.execute("""
+                    SELECT t.*, c.name as customer_name, c.total_balance
+                    FROM transactions t
+                    JOIN customers c ON t.customer_id = c.id
+                    WHERE t.id = ?
+                """, (self._last_transaction_id,)) as cur:
+                    target_tx = await cur.fetchone()
+
+            if not target_tx:
+                async with db.execute("""
+                    SELECT t.*, c.name as customer_name, c.total_balance
+                    FROM transactions t
+                    JOIN customers c ON t.customer_id = c.id
+                    ORDER BY t.id DESC LIMIT 1
+                """) as cur:
+                    target_tx = await cur.fetchone()
+
+            if not target_tx:
+                return None, "Koi purani transaction nahi mili jise sudhara ja sake."
+
+            tx_id = target_tx["id"]
+            cust_id = target_tx["customer_id"]
+            cust_name = target_tx["customer_name"]
+            old_amount = target_tx["amount"]
+            tx_type = target_tx["type"]
+            current_bal = target_tx["total_balance"]
 
             # Compute balance difference
             diff = new_amount - old_amount
@@ -254,11 +298,16 @@ class LedgerManager:
             else:
                 updated_balance = current_bal
 
-            # Update transaction amount & note
-            notes = (tx["notes"] or "") + f" [Sudhara gaya: {old_amount} se {new_amount}]"
+            # Update transaction amount & notes
+            final_note = updated_note or target_tx["notes"] or "Item purchase"
+            if "[Sudhara" not in final_note:
+                notes = f"{final_note} [Sudhara gaya: {old_amount} se {new_amount}]"
+            else:
+                notes = final_note
+
             await db.execute(
                 "UPDATE transactions SET amount = ?, notes = ? WHERE id = ?",
-                (new_amount, notes, self._last_transaction_id)
+                (new_amount, notes, tx_id)
             )
             await db.execute(
                 "UPDATE customers SET total_balance = ? WHERE id = ?",
@@ -266,9 +315,9 @@ class LedgerManager:
             )
             await db.commit()
 
-            msg = f"{cust_name} ka transaction sudhar kar {int(new_amount)} rupaye kar diya hai. Ab total {int(updated_balance)} rupaye baaki hai."
+            msg = f"{cust_name} ka transaction sudhar kar {new_amount:g} rupaye kar diya hai. Ab total {updated_balance:g} rupaye baaki hai."
             return {
-                "transaction_id": self._last_transaction_id,
+                "transaction_id": tx_id,
                 "customer_id": cust_id,
                 "customer_name": cust_name,
                 "old_amount": old_amount,

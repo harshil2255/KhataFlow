@@ -31,10 +31,13 @@ Supported actions:
    - "Mukesh ka phone number update karo"
 4. "ADD_CREDIT": Customer took goods on credit/udhaar. If the customer does not exist, they will be auto-created and billed!
    Examples:
+   - "Ayush bought 10 eggs worth 7.5 each" -> action: "ADD_CREDIT", customer: "Ayush", amount: 75.0, notes: "10 Ande (7.5rs each)", items: [{"name": "Ande", "qty": 10.0, "unit": "pcs", "unit_price": 7.5, "total": 75.0}]
    - "पूजा ने 200 रुपये का मैदा खरीदा, 50 रुपये की Maggi खरीदी। उधार में डाल दो।"
    - "Ramesh ka 340 udhaar"
    - "Mukesh Patel ke khate me 500 ka tel likh do"
    - "Krishna Nema ne 50 rupaye ka tel khareeda"
+   CRITICAL NOTE FORMAT FOR ITEMS: Whenever quantity & unit price are mentioned (e.g. 10 eggs at 7.5 each), ALWAYS format `notes` as `<qty> <Item> (<unit_price>rs each)` (e.g. "10 Ande (7.5rs each)") so the ledger can cleanly reconstruct exact bill rows!
+
 5. "RECORD_PAYMENT": Customer paid money / jama kiya.
    Examples: "kal 200 diya tha", "रमेश ने 350 रुपये नकद जमा कर दिए"
    - Special Rule for "pura udhaar chuka diya / poora hisaab clear kar diya / pura chukta":
@@ -49,7 +52,17 @@ Supported actions:
      action: "REASSIGN_ENTRY", customer: "Suresh Sharma", from_customer: "Ramesh", amount: 100.0, notes: "Doodh"
 7. "QUERY_BALANCE": User asking about balance.
    Examples: "Ramesh ka total kitna baaki hai?", "रमेश का कितना बाकी है?", "aaj kitna udhaar gaya?"
-8. "CORRECTION": User correcting an amount on the previous customer (e.g. "Nahi 340 nahi, 430 tha", "nahi 430", "nahi 350 nahi 450 tha").
+8. "CORRECTION": User correcting an amount, quantity, or unit rate on the previous item/transaction.
+   Examples:
+   - "Nahi 340 nahi, 430 tha" -> action: "CORRECTION", amount: 430.0
+   - "eggs were worth 8 each" or "ande 8 rupaye ke the" ->
+     If previous context had 10 eggs, action: "CORRECTION", customer: "<Customer from context>", target_item: "Ande", amount: 80.0, notes: "10 Ande (8rs each)",
+     items: [{"name": "Ande", "qty": 10.0, "unit": "pcs", "unit_price": 8.0, "total": 80.0}]
+   - "he bought 8 eggs" ->
+     If previous context had 10 eggs at 7.5, action: "CORRECTION", customer: "<Customer from context>", target_item: "Ande", amount: 60.0, notes: "8 Ande (7.5rs each)",
+     items: [{"name": "Ande", "qty": 8.0, "unit": "pcs", "unit_price": 7.5, "total": 60.0}]
+   - "nahi 430", "nahi 350 nahi 450 tha"
+   CRITICAL: If the user corrects quantity or rate of an item, ALWAYS calculate the NEW TOTAL for `amount` (`qty * unit_price`). NEVER set amount to 0.0 or just the unit price!
 9. "DISAMBIGUATION_RESPONSE": User specifying which customer when asked (e.g. "Gupta ji", "Verma wala", "9876 wala").
 10. "UNKNOWN": Greetings or unclear speech.
 
@@ -217,6 +230,7 @@ class IntentEngine:
                         date=act.get("date", "today"),
                         notes=act.get("notes", ""),
                         target=act.get("target", "total"),
+                        target_item=act.get("target_item"),
                         items=items
                     ))
 
