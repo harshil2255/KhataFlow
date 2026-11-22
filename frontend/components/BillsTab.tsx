@@ -60,8 +60,9 @@ export const BillsTab: React.FC<BillsTabProps> = ({ customers, transactions, onS
 
   const handleOpenCustomerInvoice = async (customer: Customer, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
     try {
-      const res = await fetch(`http://localhost:8000/api/customers/${customer.id}/bill`);
+      const res = await fetch(`${apiUrl}/api/customers/${customer.id}/bill`);
       const data = await res.json();
       setInvoiceCustomer(customer);
       setInvoiceItems(data.items || []);

@@ -424,7 +424,8 @@ function KhataFlowDashboard() {
   };
 
   const handleAddCustomer = async (data: { name: string; phone: string; opening_balance: number }) => {
-    await fetch("http://localhost:8000/api/customers", {
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+    await fetch(`${apiUrl}/api/customers`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),
@@ -432,13 +433,15 @@ function KhataFlowDashboard() {
   };
 
   const handleDeleteCustomer = async (customerId: number) => {
-    await fetch(`http://localhost:8000/api/customers/${customerId}`, {
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+    await fetch(`${apiUrl}/api/customers/${customerId}`, {
       method: "DELETE",
     });
   };
 
   const handleUpdateCustomer = async (customerId: number, data: { name: string; phone?: string }) => {
-    await fetch(`http://localhost:8000/api/customers/${customerId}`, {
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+    await fetch(`${apiUrl}/api/customers/${customerId}`, {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(data),

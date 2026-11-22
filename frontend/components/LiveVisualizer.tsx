@@ -75,7 +75,8 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
   useEffect(() => {
     if (selectedCustomer) {
       setLoadingBill(true);
-      fetch(`http://localhost:8000/api/customers/${selectedCustomer.id}/bill`)
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+      fetch(`${apiUrl}/api/customers/${selectedCustomer.id}/bill`)
         .then((res) => res.json())
         .then((data) => {
           setCustomerBill({

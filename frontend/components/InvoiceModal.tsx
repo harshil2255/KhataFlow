@@ -58,7 +58,8 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
 
   useEffect(() => {
     if (customer?.id) {
-      fetch(`http://localhost:8000/api/customers/${customer.id}/bill`)
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+      fetch(`${apiUrl}/api/customers/${customer.id}/bill`)
         .then((res) => res.json())
         .then((data) => {
           if (data && typeof data.total_billed === "number") {
