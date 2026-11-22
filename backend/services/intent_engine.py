@@ -118,7 +118,11 @@ JSON Output Format (Strictly return only this JSON object):
 
 NAME_MAP_INDIC = {
     "कृष्णा": "Krishna",
+    "कृष्ण": "Krishna",
     "नेमा": "Nema",
+    "नेवान": "Nema",
+    "मिश्रा": "Mishra",
+    "मिश्र": "Mishra",
     "रमेश": "Ramesh",
     "सुरेश": "Suresh",
     "पूजा": "Pooja",

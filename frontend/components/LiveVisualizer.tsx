@@ -129,12 +129,15 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
   }, [payload]);
 
   const lineItems: LineItem[] = useMemo(() => {
-    if (selectedCustomer && customerBill?.items && customerBill.items.length > 0) {
-      return customerBill.items;
-    }
+    // 1. If an action with parsed items was extracted from voice, prioritize showing those exact items!
     if (primaryAction.items && primaryAction.items.length > 0) {
       return primaryAction.items;
     }
+    // 2. If viewing a selected customer and their saved bill has item rows
+    if (selectedCustomer && customerBill?.items && customerBill.items.length > 0) {
+      return customerBill.items;
+    }
+    // 3. Fallback when only total amount is known
     const tot = selectedCustomer ? selectedCustomer.total_balance : primaryAction.amount || 200;
     return [{ name: "Kirana Items", qty: 1, unit: "lot", unit_price: tot, total: tot }];
   }, [primaryAction, selectedCustomer, customerBill]);
