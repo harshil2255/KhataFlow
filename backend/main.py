@@ -125,12 +125,13 @@ class CreateCustomerRequest(BaseModel):
 async def create_customer(req: CreateCustomerRequest):
     cust, is_new = await ledger_manager.get_or_create_customer(req.name, req.phone)
     if is_new and req.opening_balance and req.opening_balance > 0:
-        await ledger_manager.record_transaction(
+        _, new_bal = await ledger_manager.record_transaction(
             customer_id=cust["id"],
             amount=req.opening_balance,
             tx_type="CREDIT",
             notes="Opening Balance"
         )
+        cust["total_balance"] = new_bal
     await broadcast_ledger_state()
     return {"customer": cust, "is_new": is_new}
 

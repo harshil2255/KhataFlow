@@ -152,12 +152,27 @@ function KhataFlowDashboard() {
 
   // Setup WebSocket connection to FastAPI backend
   useEffect(() => {
+    // Initial REST ledger fetch for instant render
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://khataflow-lvvd.onrender.com";
+    fetch(`${apiUrl}/api/ledger`)
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.customers && Array.isArray(data.customers)) {
+          customersRef.current = data.customers;
+          setCustomers(data.customers);
+        }
+        if (data.transactions && Array.isArray(data.transactions)) {
+          setTransactions(data.transactions);
+        }
+      })
+      .catch((err) => console.log("Initial REST ledger fetch:", err));
+
     let unmounted = false;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
     const connectWebSocket = () => {
       if (unmounted) return;
-      const wsUrl = process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8000/ws";
+      const wsUrl = process.env.NEXT_PUBLIC_WS_URL || "wss://khataflow-lvvd.onrender.com/ws";
       const ws = new WebSocket(wsUrl);
       socketRef.current = ws;
 
@@ -346,7 +361,14 @@ function KhataFlowDashboard() {
           }
         }
 
-        const currentText = finalStr || interim;
+        // Indic phonetic normalization for common STT acoustic misrecognitions
+        const normalizeIndicPhonetics = (s: string) => {
+          return s
+            .replace(/मिश्रा|मिश्र|किशन/g, "Krishna")
+            .replace(/नेवान/g, "Nema");
+        };
+
+        const currentText = normalizeIndicPhonetics(finalStr || interim);
         if (currentText) {
           setTranscript(currentText);
         }
@@ -355,7 +377,7 @@ function KhataFlowDashboard() {
         // Debounce sending to backend: Kirana shopkeeper pauses 1-2s between items/clauses.
         // Wait 2200ms of true silence before finalizing turn, so pauses don't cut off speech!
         if (finalStr) {
-          bufferedSpeechRef.current = finalStr;
+          bufferedSpeechRef.current = normalizeIndicPhonetics(finalStr);
           if (speechDebounceTimerRef.current) {
             clearTimeout(speechDebounceTimerRef.current);
           }
@@ -424,28 +446,57 @@ function KhataFlowDashboard() {
   };
 
   const handleAddCustomer = async (data: { name: string; phone: string; opening_balance: number }) => {
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-    await fetch(`${apiUrl}/api/customers`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data),
-    });
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://khataflow-lvvd.onrender.com";
+    try {
+      const res = await fetch(`${apiUrl}/api/customers`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      if (res.ok) {
+        const json = await res.json();
+        if (json.customer) {
+          setCustomers((prev) => {
+            const exists = prev.some((c) => c.id === json.customer.id);
+            if (!exists) return [json.customer, ...prev];
+            return prev.map((c) => (c.id === json.customer.id ? json.customer : c));
+          });
+        }
+      }
+    } catch (err) {
+      console.error("Add customer error:", err);
+    }
   };
 
   const handleDeleteCustomer = async (customerId: number) => {
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-    await fetch(`${apiUrl}/api/customers/${customerId}`, {
-      method: "DELETE",
-    });
+    setCustomers((prev) => prev.filter((c) => c.id !== customerId));
+    if (selectedCustomer?.id === customerId) {
+      setSelectedCustomer(null);
+    }
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://khataflow-lvvd.onrender.com";
+    try {
+      await fetch(`${apiUrl}/api/customers/${customerId}`, {
+        method: "DELETE",
+      });
+    } catch (err) {
+      console.error("Delete customer error:", err);
+    }
   };
 
   const handleUpdateCustomer = async (customerId: number, data: { name: string; phone?: string }) => {
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-    await fetch(`${apiUrl}/api/customers/${customerId}`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(data),
-    });
+    setCustomers((prev) =>
+      prev.map((c) => (c.id === customerId ? { ...c, name: data.name, phone: data.phone ?? c.phone } : c))
+    );
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://khataflow-lvvd.onrender.com";
+    try {
+      await fetch(`${apiUrl}/api/customers/${customerId}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+    } catch (err) {
+      console.error("Update customer error:", err);
+    }
   };
 
   const totalReceivable = customers

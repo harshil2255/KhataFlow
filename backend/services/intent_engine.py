@@ -80,6 +80,8 @@ CRITICAL CUSTOMER NAME EXTRACTION RULES:
 - NEVER truncate full names into first names. If the user says "Krishna Nema", set customer: "Krishna Nema", NOT "Krishna".
 - If the user says "Mukesh Kumar", set customer: "Mukesh Kumar", NOT "Mukesh".
 - Transliteration of Indic names: "कृष्णा नेमा" -> "Krishna Nema", "मुकेश पटेल" -> "Mukesh Patel".
+- Indic Phonetic Misrecognition Rule:
+  In Indian speech recognition (Web Speech / STT), speakers saying "Krishna" (or "Krishna Nema") are frequently misrecognized as "मिश्रा" (Mishra), "मिश्र", or "किशन". Always resolve these to "Krishna" (or "Krishna Nema" if followed by Nema) unless a registered customer named Mishra already exists in the store ledger.
 
 Quantity Defaulting Rule:
 - When an item and price are mentioned WITHOUT explicit quantity (e.g., "200 ka maida, 50 ki Maggi"):
@@ -119,10 +121,11 @@ JSON Output Format (Strictly return only this JSON object):
 NAME_MAP_INDIC = {
     "कृष्णा": "Krishna",
     "कृष्ण": "Krishna",
+    "किशन": "Krishna",
+    "मिश्रा": "Krishna",
+    "मिश्र": "Krishna",
     "नेमा": "Nema",
     "नेवान": "Nema",
-    "मिश्रा": "Mishra",
-    "मिश्र": "Mishra",
     "रमेश": "Ramesh",
     "सुरेश": "Suresh",
     "पूजा": "Pooja",
@@ -140,6 +143,9 @@ NAME_MAP_INDIC = {
 }
 
 ROMAN_NAME_ALIASES = {
+    "krishna": "Krishna",
+    "krishnanema": "Krishna Nema",
+    "mishra": "Krishna",
     "puja": "Pooja",
     "pooja": "Pooja",
     "ramesh": "Ramesh",

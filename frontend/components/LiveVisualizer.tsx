@@ -75,7 +75,7 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
   useEffect(() => {
     if (selectedCustomer) {
       setLoadingBill(true);
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://khataflow-lvvd.onrender.com";
       fetch(`${apiUrl}/api/customers/${selectedCustomer.id}/bill`)
         .then((res) => res.json())
         .then((data) => {
@@ -111,6 +111,19 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
     return extractedPayload as Record<string, any>;
   }, [extractedPayload]);
 
+  const allExtractedItems: LineItem[] = useMemo(() => {
+    if (payload?.actions && Array.isArray(payload.actions)) {
+      const all: LineItem[] = [];
+      for (const a of payload.actions) {
+        if (a.items && Array.isArray(a.items) && a.items.length > 0) {
+          all.push(...a.items);
+        }
+      }
+      return all;
+    }
+    return [];
+  }, [payload]);
+
   const primaryAction: ActionItem = useMemo(() => {
     if (payload?.actions && Array.isArray(payload.actions) && payload.actions.length > 0) {
       return payload.actions[0];
@@ -129,18 +142,21 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
   }, [payload]);
 
   const lineItems: LineItem[] = useMemo(() => {
-    // 1. If an action with parsed items was extracted from voice, prioritize showing those exact items!
-    if (primaryAction.items && primaryAction.items.length > 0) {
-      return primaryAction.items;
-    }
-    // 2. If viewing a selected customer and their saved bill has item rows
+    // 1. If viewing a selected customer and their saved bill has item rows
     if (selectedCustomer && customerBill?.items && customerBill.items.length > 0) {
       return customerBill.items;
+    }
+    // 2. If voice actions returned parsed items, prioritize showing all extracted items!
+    if (allExtractedItems.length > 0) {
+      return allExtractedItems;
+    }
+    if (primaryAction.items && primaryAction.items.length > 0) {
+      return primaryAction.items;
     }
     // 3. Fallback when only total amount is known
     const tot = selectedCustomer ? selectedCustomer.total_balance : primaryAction.amount || 200;
     return [{ name: "Kirana Items", qty: 1, unit: "lot", unit_price: tot, total: tot }];
-  }, [primaryAction, selectedCustomer, customerBill]);
+  }, [allExtractedItems, primaryAction, selectedCustomer, customerBill]);
 
   const grandTotal = useMemo(() => {
     if (selectedCustomer && customerBill) {
@@ -314,7 +330,7 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
             <div>
               <h3 className="text-xs font-bold text-white tracking-tight">Smart Kirana Receipt</h3>
               <span className="text-[10px] text-white/40 font-mono">
-                {selectedCustomer ? `${selectedCustomer.name} (#KF-${selectedCustomer.id})` : "#KF-LIVE"}
+                {selectedCustomer ? `${selectedCustomer.name} (#KF-${selectedCustomer.id})` : (primaryAction.customer ? `${primaryAction.customer} (#KF-LIVE)` : "#KF-LIVE")}
               </span>
             </div>
           </div>

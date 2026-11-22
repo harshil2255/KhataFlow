@@ -58,7 +58,7 @@ export const InvoiceModal: React.FC<InvoiceModalProps> = ({
 
   useEffect(() => {
     if (customer?.id) {
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://khataflow-lvvd.onrender.com";
       fetch(`${apiUrl}/api/customers/${customer.id}/bill`)
         .then((res) => res.json())
         .then((data) => {

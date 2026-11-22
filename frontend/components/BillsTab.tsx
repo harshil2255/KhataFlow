@@ -60,7 +60,7 @@ export const BillsTab: React.FC<BillsTabProps> = ({ customers, transactions, onS
 
   const handleOpenCustomerInvoice = async (customer: Customer, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
-    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://khataflow-lvvd.onrender.com";
     try {
       const res = await fetch(`${apiUrl}/api/customers/${customer.id}/bill`);
       const data = await res.json();
