@@ -156,7 +156,7 @@ def extract_line_items_from_history(transactions: List[Dict[str, Any]], total_ba
         clean_fallback = re.sub(r'^[a-zA-Z\s]+ ne ', '', clean_note)
         clean_fallback = clean_fallback.replace('khareeda', '').replace('khareede', '').strip()
         if not clean_fallback or clean_fallback.lower() in INVALID_NAMES or len(clean_fallback) < 2:
-            clean_fallback = "Kirana Samaan"
+            clean_fallback = clean_note.strip() if clean_note.strip() else "Udhaar Samaan"
         items.append({
             "name": clean_fallback.title(),
             "qty": 1.0,
@@ -175,26 +175,16 @@ def extract_line_items_from_history(transactions: List[Dict[str, Any]], total_ba
             deduped_items.insert(0, item)
     items = deduped_items
 
-    current_sum = sum(i["total"] for i in items)
-    diff = round(total_balance - current_sum, 2)
-    
-    # If the extracted items don't cover the full balance, add remaining balance as Kirana Rashan
-    if diff > 0 and len(items) == 0:
-        items.append({
-            "name": "Kirana Rashan",
-            "qty": 1.0,
-            "unit": "lot",
-            "unit_price": diff,
-            "total": diff
-        })
-    elif len(items) == 0:
-        bal = max(0.0, total_balance)
-        items.append({
-            "name": "Kirana Rashan",
-            "qty": 1.0,
-            "unit": "lot",
-            "unit_price": bal,
-            "total": bal
-        })
+    if len(items) == 0:
+        if total_balance > 0:
+            items.append({
+                "name": "Pichhla Udhaar",
+                "qty": 1.0,
+                "unit": "hisaab",
+                "unit_price": round(total_balance, 2),
+                "total": round(total_balance, 2)
+            })
+        else:
+            return []
 
     return items

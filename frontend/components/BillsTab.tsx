@@ -69,15 +69,19 @@ export const BillsTab: React.FC<BillsTabProps> = ({ customers, transactions, onS
       setInvoiceTotal(data.amount ?? customer.total_balance);
     } catch {
       setInvoiceCustomer(customer);
-      setInvoiceItems([
-        {
-          name: "Kirana Items",
-          qty: 1,
-          unit: "lot",
-          unit_price: customer.total_balance,
-          total: customer.total_balance,
-        },
-      ]);
+      setInvoiceItems(
+        customer.total_balance > 0
+          ? [
+              {
+                name: "Pichhla Udhaar",
+                qty: 1,
+                unit: "hisaab",
+                unit_price: customer.total_balance,
+                total: customer.total_balance,
+              },
+            ]
+          : []
+      );
       setInvoiceTotal(customer.total_balance);
     }
   };
@@ -258,7 +262,7 @@ export const BillsTab: React.FC<BillsTabProps> = ({ customers, transactions, onS
                                     t.type === "CREDIT" ? "bg-rose-400" : "bg-emerald-400"
                                   }`}
                                 />
-                                <span className="text-white/80">{t.notes || "Kirana Items"}</span>
+                                <span className="text-white/80">{t.notes || "Udhaar Samaan"}</span>
                                 <span className="text-[10px] text-white/30 font-mono">{t.created_at}</span>
                               </div>
                               <span

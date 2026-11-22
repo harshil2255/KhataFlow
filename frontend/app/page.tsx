@@ -470,6 +470,7 @@ function KhataFlowDashboard() {
 
   const handleDeleteCustomer = async (customerId: number) => {
     setCustomers((prev) => prev.filter((c) => c.id !== customerId));
+    setTransactions((prev) => prev.filter((t) => t.customer_id !== customerId));
     if (selectedCustomer?.id === customerId) {
       setSelectedCustomer(null);
     }
@@ -768,6 +769,7 @@ function KhataFlowDashboard() {
                     onConfirmAction={handleConfirmAction}
                     selectedCustomer={selectedCustomer}
                     onClearSelectedCustomer={() => setSelectedCustomer(null)}
+                    onDeleteCustomer={handleDeleteCustomer}
                   />
                 </div>
               </motion.div>

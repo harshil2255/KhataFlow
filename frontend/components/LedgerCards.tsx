@@ -70,6 +70,10 @@ export const LedgerCards: React.FC<LedgerCardsProps> = ({
   const [editPhone, setEditPhone] = useState("");
   const [isUpdating, setIsUpdating] = useState(false);
 
+  // Delete customer modal state
+  const [deletingCustomer, setDeletingCustomer] = useState<Customer | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+
   const filteredCustomers = useMemo(() => {
     return customers.filter((cust) => {
       const matchesSearch =
@@ -115,13 +119,9 @@ export const LedgerCards: React.FC<LedgerCardsProps> = ({
     }
   };
 
-  const handleDelete = async (e: React.MouseEvent, custId: number) => {
+  const handleDelete = (e: React.MouseEvent, cust: Customer) => {
     e.stopPropagation();
-    if (confirm("Kya aap sach me is grahak ko hatana chahte hain?")) {
-      if (onDeleteCustomer) {
-        await onDeleteCustomer(custId);
-      }
-    }
+    setDeletingCustomer(cust);
   };
 
   const getMonogram = (name: string) => {
@@ -234,8 +234,8 @@ export const LedgerCards: React.FC<LedgerCardsProps> = ({
 
                   {/* Right: Balance, Action & Chevron */}
                   <div className="flex items-center gap-2 shrink-0">
-                    {/* Action icons on hover */}
-                    <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1 transition-opacity">
+                    {/* Action icons */}
+                    <div className="opacity-60 group-hover:opacity-100 flex items-center gap-1 transition-opacity">
                       <button
                         onClick={(e) => {
                           e.stopPropagation();
@@ -243,14 +243,14 @@ export const LedgerCards: React.FC<LedgerCardsProps> = ({
                           setEditName(cust.name);
                           setEditPhone(cust.phone || "");
                         }}
-                        className="h-6 w-6 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-white/60 hover:text-white flex items-center justify-center transition-colors"
+                        className="h-6 w-6 rounded-lg bg-white/[0.06] hover:bg-white/[0.15] text-white/70 hover:text-white flex items-center justify-center transition-colors"
                         title="Edit Customer"
                       >
                         <Edit2 className="h-3 w-3" />
                       </button>
                       <button
-                        onClick={(e) => handleDelete(e, cust.id)}
-                        className="h-6 w-6 rounded-lg bg-white/[0.06] hover:bg-rose-500/20 text-white/60 hover:text-rose-400 flex items-center justify-center transition-colors"
+                        onClick={(e) => handleDelete(e, cust)}
+                        className="h-6 w-6 rounded-lg bg-rose-500/10 hover:bg-rose-500/30 text-rose-400 hover:text-rose-300 flex items-center justify-center transition-colors"
                         title="Delete Customer"
                       >
                         <Trash2 className="h-3 w-3" />
@@ -437,6 +437,62 @@ export const LedgerCards: React.FC<LedgerCardsProps> = ({
                   </button>
                 </div>
               </form>
+            </motion.div>
+          </div>
+        )}
+
+        {/* Modal: Delete Customer Confirmation */}
+        {deletingCustomer && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-md">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 10 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 10 }}
+              className="w-full max-w-sm rounded-3xl p-6 glass-modal space-y-4 border border-rose-500/20 shadow-2xl"
+            >
+              <div className="flex items-center gap-3">
+                <div className="h-10 w-10 rounded-2xl bg-rose-500/15 border border-rose-500/30 flex items-center justify-center text-rose-400 shrink-0">
+                  <Trash2 className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-white">Grahak Hatayein?</h3>
+                  <p className="text-xs text-white/60">
+                    <span className="text-rose-300 font-semibold">{deletingCustomer.name}</span> ka account delete karein?
+                  </p>
+                </div>
+              </div>
+
+              <p className="text-[11px] text-white/45">
+                Is grahak ka sara purana udhaar, jama aur bill history delete ho jayegi.
+              </p>
+
+              <div className="pt-2 flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setDeletingCustomer(null)}
+                  className="flex-1 py-2 rounded-xl bg-white/[0.06] hover:bg-white/[0.1] text-white/70 text-xs font-semibold"
+                >
+                  Radd Karein
+                </button>
+                <button
+                  type="button"
+                  disabled={isDeleting}
+                  onClick={async () => {
+                    setIsDeleting(true);
+                    try {
+                      if (onDeleteCustomer) {
+                        await onDeleteCustomer(deletingCustomer.id);
+                      }
+                      setDeletingCustomer(null);
+                    } finally {
+                      setIsDeleting(false);
+                    }
+                  }}
+                  className="flex-1 py-2 rounded-xl bg-rose-500 hover:bg-rose-600 text-white text-xs font-bold shadow-lg shadow-rose-500/30 active:scale-95"
+                >
+                  {isDeleting ? "Hata Rahe Hain..." : "Haan, Hatayein"}
+                </button>
+              </div>
             </motion.div>
           </div>
         )}

@@ -14,6 +14,8 @@ import {
   FileText,
   Mail,
   ExternalLink,
+  Loader2,
+  Trash2,
 } from "lucide-react";
 import { Customer } from "./LedgerCards";
 import { useTheme } from "@/context/ThemeContext";
@@ -49,6 +51,7 @@ interface LiveVisualizerProps {
   onConfirmAction?: (action: ActionItem) => void;
   selectedCustomer: Customer | null;
   onClearSelectedCustomer: () => void;
+  onDeleteCustomer?: (customerId: number) => void;
 }
 
 export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
@@ -61,6 +64,7 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
   spokenAudioPlaying,
   selectedCustomer,
   onClearSelectedCustomer,
+  onDeleteCustomer,
 }) => {
   const { theme } = useTheme();
   const [customerBill, setCustomerBill] = useState<{
@@ -89,15 +93,15 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
           setCustomerBill({
             customer: selectedCustomer.name,
             amount: selectedCustomer.total_balance,
-            items: [
+            items: selectedCustomer.total_balance > 0 ? [
               {
-                name: "Kirana Items",
+                name: "Pichhla Udhaar",
                 qty: 1,
-                unit: "lot",
+                unit: "hisaab",
                 unit_price: selectedCustomer.total_balance,
                 total: selectedCustomer.total_balance,
               },
-            ],
+            ] : [],
           });
         })
         .finally(() => setLoadingBill(false));
@@ -124,21 +128,11 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
     return [];
   }, [payload]);
 
-  const primaryAction: ActionItem = useMemo(() => {
+  const primaryAction: ActionItem | null = useMemo(() => {
     if (payload?.actions && Array.isArray(payload.actions) && payload.actions.length > 0) {
       return payload.actions[0];
     }
-    return {
-      action: "ADD_CREDIT",
-      customer: "Krishna",
-      amount: 200,
-      notes: "Chawal aur Maggi",
-      items: [
-        { name: "Chawal", qty: 2, unit: "kg", unit_price: 60, total: 120 },
-        { name: "Maggi", qty: 1, unit: "pkt", unit_price: 20, total: 20 },
-        { name: "Doodh", qty: 1, unit: "ltr", unit_price: 60, total: 60 },
-      ],
-    };
+    return null;
   }, [payload]);
 
   const lineItems: LineItem[] = useMemo(() => {
@@ -150,22 +144,37 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
     if (allExtractedItems.length > 0) {
       return allExtractedItems;
     }
-    if (primaryAction.items && primaryAction.items.length > 0) {
+    if (primaryAction?.items && primaryAction.items.length > 0) {
       return primaryAction.items;
     }
-    // 3. Fallback when only total amount is known
-    const tot = selectedCustomer ? selectedCustomer.total_balance : primaryAction.amount || 200;
-    return [{ name: "Kirana Items", qty: 1, unit: "lot", unit_price: tot, total: tot }];
+    // 3. Fallback only if customer has an outstanding balance with no specific item breakdown
+    if (selectedCustomer && selectedCustomer.total_balance > 0) {
+      return [{
+        name: "Pichhla Udhaar",
+        qty: 1,
+        unit: "hisaab",
+        unit_price: selectedCustomer.total_balance,
+        total: selectedCustomer.total_balance
+      }];
+    }
+    // Default when no customer selected and no active speech: empty list
+    return [];
   }, [allExtractedItems, primaryAction, selectedCustomer, customerBill]);
 
   const grandTotal = useMemo(() => {
     if (selectedCustomer && customerBill) {
       return customerBill.amount;
     }
+    if (selectedCustomer) {
+      return selectedCustomer.total_balance;
+    }
     if (lineItems.length > 0) {
       return lineItems.reduce((acc, curr) => acc + (curr.total || 0), 0);
     }
-    return primaryAction.amount || 200;
+    if (primaryAction?.amount) {
+      return primaryAction.amount;
+    }
+    return 0;
   }, [lineItems, primaryAction, selectedCustomer, customerBill]);
 
   // Orb State
@@ -271,7 +280,7 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
             <p className="text-white/80 text-[10px] leading-tight">
               {selectedCustomer
                 ? `${selectedCustomer.name} ji ka ₹${selectedCustomer.total_balance} baaki hai...`
-                : "Krishna ji ka ₹120 baaki hai..."}
+                : "Bol kar udhaar ya jama darj karein..."}
             </p>
           </motion.div>
 
@@ -290,16 +299,18 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
           </motion.div>
 
           {/* Floating Glass Chat Bubble: Bottom-Right (AI Confirmation) */}
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="absolute right-2 bottom-0 p-1.5 px-2.5 rounded-xl bg-emerald-500/20 backdrop-blur-xl border border-emerald-500/30 shadow-lg flex items-center gap-1.5 text-xs"
-          >
-            <CheckCircle2 className="h-3 w-3 text-emerald-300" />
-            <span className="text-[10px] text-white font-semibold">
-              Ho gaya! Kul ₹{grandTotal}
-            </span>
-          </motion.div>
+          {grandTotal > 0 && (
+            <motion.div
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="absolute right-2 bottom-0 p-1.5 px-2.5 rounded-xl bg-emerald-500/20 backdrop-blur-xl border border-emerald-500/30 shadow-lg flex items-center gap-1.5 text-xs"
+            >
+              <CheckCircle2 className="h-3 w-3 text-emerald-300" />
+              <span className="text-[10px] text-white font-semibold">
+                Ho gaya! Kul ₹{grandTotal}
+              </span>
+            </motion.div>
+          )}
         </div>
 
         {/* Bottom transcript bar */}
@@ -330,7 +341,7 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
             <div>
               <h3 className="text-xs font-bold text-white tracking-tight">Smart Kirana Receipt</h3>
               <span className="text-[10px] text-white/40 font-mono">
-                {selectedCustomer ? `${selectedCustomer.name} (#KF-${selectedCustomer.id})` : (primaryAction.customer ? `${primaryAction.customer} (#KF-LIVE)` : "#KF-LIVE")}
+                {selectedCustomer ? `${selectedCustomer.name} (#KF-${selectedCustomer.id})` : (primaryAction?.customer ? `${primaryAction.customer} (#KF-LIVE)` : "#KF-LIVE")}
               </span>
             </div>
           </div>
@@ -348,16 +359,37 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
             </button>
 
             {selectedCustomer && (
-              <button
-                onClick={onClearSelectedCustomer}
-                className="px-2 py-0.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-white/60 text-[10px] flex items-center gap-1 transition-colors"
-              >
-                <X className="h-3 w-3" /> Clear Selection
-              </button>
+              <>
+                <button
+                  onClick={onClearSelectedCustomer}
+                  className="px-2 py-0.5 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] text-white/60 text-[10px] flex items-center gap-1 transition-colors"
+                >
+                  <X className="h-3 w-3" /> Clear Selection
+                </button>
+                {onDeleteCustomer && (
+                  <button
+                    onClick={() => {
+                      if (confirm(`Kya aap sach me ${selectedCustomer.name} ko delete karna chahte hain?`)) {
+                        onDeleteCustomer(selectedCustomer.id);
+                      }
+                    }}
+                    className="px-2 py-0.5 rounded-lg bg-rose-500/10 hover:bg-rose-500/25 text-rose-400 text-[10px] flex items-center gap-1 transition-colors"
+                    title="Delete customer"
+                  >
+                    <Trash2 className="h-3 w-3" /> Delete
+                  </button>
+                )}
+              </>
             )}
-            <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 font-semibold flex items-center gap-1">
-              <Sparkles className="h-2.5 w-2.5" /> Bill Generated
-            </span>
+            {lineItems.length > 0 || grandTotal > 0 ? (
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 font-semibold flex items-center gap-1">
+                <Sparkles className="h-2.5 w-2.5" /> Bill Generated
+              </span>
+            ) : (
+              <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-white/[0.05] border border-white/10 text-white/40 flex items-center gap-1">
+                Receipt Ready
+              </span>
+            )}
           </div>
         </div>
 
@@ -372,9 +404,22 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
 
           <div className="flex-1 overflow-y-auto space-y-1 pt-1 pr-1">
             {loadingBill ? (
-              <div className="py-6 text-center text-xs text-white/40">Loading customer bill...</div>
+              <div className="py-8 flex flex-col items-center justify-center text-center text-white/40">
+                <Loader2 className="h-5 w-5 mb-1.5 animate-spin text-emerald-400" />
+                <p className="text-xs">Loading customer bill...</p>
+              </div>
             ) : lineItems.length === 0 ? (
-              <div className="py-6 text-center text-xs text-white/40">No items on this bill.</div>
+              <div className="py-8 flex flex-col items-center justify-center text-center text-white/40 space-y-1.5">
+                <Receipt className="h-7 w-7 opacity-30 text-emerald-400" />
+                <p className="text-xs font-semibold text-white/70">
+                  {selectedCustomer ? `${selectedCustomer.name} ka hisaab chukta hai` : "No active receipt"}
+                </p>
+                <p className="text-[10px] text-white/35 max-w-[240px]">
+                  {selectedCustomer
+                    ? "Is grahak ka koi purana ya naya udhaar baaki nahi hai."
+                    : "Tap mic to record an order or select a customer to view their ledger receipt."}
+                </p>
+              </div>
             ) : (
               lineItems.map((item, idx) => (
                 <div
@@ -433,7 +478,7 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
             customer={
               selectedCustomer || {
                 id: 1,
-                name: primaryAction.customer || "Walk-in Grahak",
+                name: primaryAction?.customer || "Walk-in Grahak",
                 phone: null,
                 total_balance: grandTotal,
                 created_at: "",

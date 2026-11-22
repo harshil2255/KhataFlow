@@ -466,10 +466,12 @@ async def websocket_endpoint(websocket: WebSocket):
                         for it in extracted_dict_items
                     ]
                     
-                    if not bill_items:
+                    if not bill_items and target_cust["total_balance"] > 0:
                         bill_items = [
-                            LineItem(name="All Past Kirana Items", qty=1.0, unit="lot", unit_price=target_cust["total_balance"], total=target_cust["total_balance"])
+                            LineItem(name="Pichhla Udhaar", qty=1.0, unit="hisaab", unit_price=target_cust["total_balance"], total=target_cust["total_balance"])
                         ]
+                    elif not bill_items:
+                        bill_items = []
 
                     bill_action = ActionItem(
                         action="GENERATE_BILL",

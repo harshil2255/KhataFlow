@@ -372,12 +372,10 @@ class IntentEngine:
         act = ActionItem(
             action=act_type,
             customer=cust,
-            amount=total_amt or 250.0,
+            amount=total_amt or 0.0,
             date="today",
             notes=text,
-            items=items or [
-                LineItem(name="Kirana Items", qty=1.0, unit="lot", unit_price=total_amt or 250.0, total=total_amt or 250.0)
-            ]
+            items=items
         )
 
         return IntentResponse(

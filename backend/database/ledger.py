@@ -32,30 +32,6 @@ async def init_db(db_path: str = DB_PATH):
         """)
         await db.commit()
 
-        # Seed initial sample kirana accounts if empty
-        async with db.execute("SELECT COUNT(*) FROM customers") as cursor:
-            row = await cursor.fetchone()
-            if row and row[0] == 0:
-                initial_customers = [
-                    ("Ramesh Gupta", "9876543210", 350.0),
-                    ("Ramesh Verma", "9812345678", 0.0),
-                    ("Suresh Sharma", "9988776655", 850.0),
-                    ("Pooja Patel", "9123456780", 120.0),
-                    ("Mukesh Bhai", "9345678901", -50.0),  # In advance
-                ]
-                for name, phone, bal in initial_customers:
-                    cursor_c = await db.execute(
-                        "INSERT INTO customers (name, phone, total_balance) VALUES (?, ?, ?)",
-                        (name, phone, bal)
-                    )
-                    c_id = cursor_c.lastrowid
-                    if bal > 0:
-                        await db.execute(
-                            "INSERT INTO transactions (customer_id, amount, type, notes) VALUES (?, ?, 'CREDIT', 'Purana baaki rashan')",
-                            (c_id, bal)
-                        )
-                await db.commit()
-
 class LedgerManager:
     def __init__(self, db_path: str = DB_PATH):
         self.db_path = db_path
