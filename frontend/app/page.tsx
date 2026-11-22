@@ -56,6 +56,7 @@ function KhataFlowDashboard() {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [lastUpdatedCustomerId, setLastUpdatedCustomerId] = useState<number | null>(null);
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  const [liveBillData, setLiveBillData] = useState<{ customer: string; customer_id: number; amount: number; items: any[] } | null>(null);
 
   // Standard Voice Input state
   const [isRecording, setIsRecording] = useState(false);
@@ -208,6 +209,21 @@ function KhataFlowDashboard() {
           } else if (msg.type === "INTENT_EXTRACTED") {
             setExtractedPayload(msg.payload);
             setSelectedCustomer(null);
+          } else if (msg.type === "BILL_UPDATED") {
+            const bill = msg.data;
+            if (bill && bill.customer_id) {
+              const matched = customersRef.current.find((c) => c.id === bill.customer_id);
+              if (matched) {
+                setSelectedCustomer(matched);
+                markHighlight(matched.id);
+              }
+              setLiveBillData({
+                customer: bill.customer,
+                customer_id: bill.customer_id,
+                amount: bill.amount,
+                items: bill.items || [],
+              });
+            }
           } else if (msg.type === "LATENCY_METRIC") {
             setTtfaLatencyMs(msg.ttfa_ms);
           } else if (msg.type === "AUDIO_RESPONSE_CHUNK") {
@@ -456,11 +472,31 @@ function KhataFlowDashboard() {
       if (res.ok) {
         const json = await res.json();
         if (json.customer) {
-          setCustomers((prev) => {
-            const exists = prev.some((c) => c.id === json.customer.id);
-            if (!exists) return [json.customer, ...prev];
-            return prev.map((c) => (c.id === json.customer.id ? json.customer : c));
-          });
+          const newCust: Customer = {
+            id: json.customer.id,
+            name: json.customer.name,
+            phone: json.customer.phone || null,
+            total_balance: json.customer.total_balance || data.opening_balance || 0,
+            created_at: json.customer.created_at || new Date().toISOString(),
+            is_new: true,
+          };
+          customersRef.current = [newCust, ...customersRef.current.filter((c) => c.id !== newCust.id)];
+          setCustomers(customersRef.current);
+          setSelectedCustomer(newCust);
+          markHighlight(newCust.id);
+
+          if (data.opening_balance > 0) {
+            const openTx: Transaction = {
+              id: Date.now(),
+              customer_id: newCust.id,
+              customer_name: newCust.name,
+              amount: data.opening_balance,
+              type: "CREDIT",
+              notes: "Opening Balance",
+              created_at: new Date().toISOString(),
+            };
+            setTransactions((prev) => [openTx, ...prev]);
+          }
         }
       }
     } catch (err) {
@@ -768,8 +804,13 @@ function KhataFlowDashboard() {
                     onSimulateSpeech={handleSimulateSpeech}
                     onConfirmAction={handleConfirmAction}
                     selectedCustomer={selectedCustomer}
-                    onClearSelectedCustomer={() => setSelectedCustomer(null)}
+                    onClearSelectedCustomer={() => {
+                      setSelectedCustomer(null);
+                      setLiveBillData(null);
+                    }}
                     onDeleteCustomer={handleDeleteCustomer}
+                    liveBillData={liveBillData}
+                    transactions={transactions}
                   />
                 </div>
               </motion.div>

@@ -17,7 +17,7 @@ import {
   Loader2,
   Trash2,
 } from "lucide-react";
-import { Customer } from "./LedgerCards";
+import { Customer, Transaction } from "./LedgerCards";
 import { useTheme } from "@/context/ThemeContext";
 import { InvoiceModal } from "./InvoiceModal";
 
@@ -52,6 +52,40 @@ interface LiveVisualizerProps {
   selectedCustomer: Customer | null;
   onClearSelectedCustomer: () => void;
   onDeleteCustomer?: (customerId: number) => void;
+  liveBillData?: { customer_id: number; customer: string; amount: number; items: LineItem[] } | null;
+  transactions?: Transaction[];
+}
+
+// Client-side parser to extract itemized entries from transaction notes or corrections
+function parseItemsFromTransactions(txList: Transaction[], customerId: number): LineItem[] {
+  const custTx = txList.filter((t) => t.customer_id === customerId);
+  const items: LineItem[] = [];
+
+  for (const tx of custTx) {
+    if (!tx.notes || tx.notes === "Opening Balance" || tx.notes === "Quick Entry") {
+      continue;
+    }
+    // E.g. "2 Chawal (60rs each), 5 Ande (7.5rs each)"
+    const parts = tx.notes.split(",");
+    for (const part of parts) {
+      const match = part.trim().match(/^([\d.]+)?\s*([^(]+)(?:\(([\d.]+)\s*rs(?:\s*each)?\))?/i);
+      if (match) {
+        const qty = match[1] ? parseFloat(match[1]) : 1;
+        const name = match[2].trim();
+        const unit_price = match[3] ? parseFloat(match[3]) : (tx.amount / (qty || 1));
+        if (name && !name.toLowerCase().includes("kirana")) {
+          items.push({
+            name,
+            qty,
+            unit: "unit",
+            unit_price,
+            total: Math.round(qty * unit_price * 100) / 100,
+          });
+        }
+      }
+    }
+  }
+  return items;
 }
 
 export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
@@ -65,6 +99,8 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
   selectedCustomer,
   onClearSelectedCustomer,
   onDeleteCustomer,
+  liveBillData,
+  transactions = [],
 }) => {
   const { theme } = useTheme();
   const [customerBill, setCustomerBill] = useState<{
@@ -75,9 +111,30 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
   const [loadingBill, setLoadingBill] = useState(false);
   const [isInvoiceOpen, setIsInvoiceOpen] = useState(false);
 
+  // Sync real-time WebSocket bill data
+  useEffect(() => {
+    if (liveBillData && selectedCustomer && liveBillData.customer_id === selectedCustomer.id) {
+      setCustomerBill({
+        customer: liveBillData.customer,
+        amount: liveBillData.amount,
+        items: liveBillData.items || [],
+      });
+    }
+  }, [liveBillData, selectedCustomer]);
+
   // Fetch bill for selected customer
   useEffect(() => {
     if (selectedCustomer) {
+      // If we already have liveBillData for this customer, use it immediately
+      if (liveBillData && liveBillData.customer_id === selectedCustomer.id) {
+        setCustomerBill({
+          customer: liveBillData.customer,
+          amount: liveBillData.amount,
+          items: liveBillData.items || [],
+        });
+        return;
+      }
+
       setLoadingBill(true);
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://khataflow-lvvd.onrender.com";
       fetch(`${apiUrl}/api/customers/${selectedCustomer.id}/bill`)
@@ -90,10 +147,12 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
           });
         })
         .catch(() => {
+          // Fallback to local parsing from transaction history
+          const parsed = parseItemsFromTransactions(transactions, selectedCustomer.id);
           setCustomerBill({
             customer: selectedCustomer.name,
             amount: selectedCustomer.total_balance,
-            items: selectedCustomer.total_balance > 0 ? [
+            items: parsed.length > 0 ? parsed : selectedCustomer.total_balance > 0 ? [
               {
                 name: "Pichhla Udhaar",
                 qty: 1,
@@ -108,7 +167,7 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
     } else {
       setCustomerBill(null);
     }
-  }, [selectedCustomer]);
+  }, [selectedCustomer, liveBillData, transactions]);
 
   const payload = useMemo(() => {
     if (!extractedPayload || typeof extractedPayload !== "object") return null;
@@ -140,14 +199,19 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
     if (selectedCustomer && customerBill?.items && customerBill.items.length > 0) {
       return customerBill.items;
     }
-    // 2. If voice actions returned parsed items, prioritize showing all extracted items!
+    // 2. Fallback to client-side parsing of transaction notes for selected customer
+    if (selectedCustomer && transactions && transactions.length > 0) {
+      const parsed = parseItemsFromTransactions(transactions, selectedCustomer.id);
+      if (parsed.length > 0) return parsed;
+    }
+    // 3. If voice actions returned parsed items, prioritize showing all extracted items!
     if (allExtractedItems.length > 0) {
       return allExtractedItems;
     }
     if (primaryAction?.items && primaryAction.items.length > 0) {
       return primaryAction.items;
     }
-    // 3. Fallback only if customer has an outstanding balance with no specific item breakdown
+    // 4. Fallback only if customer has an outstanding balance with no specific item breakdown
     if (selectedCustomer && selectedCustomer.total_balance > 0) {
       return [{
         name: "Pichhla Udhaar",
@@ -159,7 +223,7 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
     }
     // Default when no customer selected and no active speech: empty list
     return [];
-  }, [allExtractedItems, primaryAction, selectedCustomer, customerBill]);
+  }, [allExtractedItems, primaryAction, selectedCustomer, customerBill, transactions]);
 
   const grandTotal = useMemo(() => {
     if (selectedCustomer && customerBill) {

@@ -65,6 +65,22 @@ async def broadcast_ledger_state():
             if client in connected_clients:
                 connected_clients.remove(client)
 
+async def broadcast_customer_bill(customer_id: int):
+    """Broadcasts updated itemized bill for a specific customer to all connected clients."""
+    try:
+        bill_data = await get_customer_bill(customer_id)
+        payload = json.dumps({
+            "type": "BILL_UPDATED",
+            "data": bill_data
+        })
+        for client in list(connected_clients):
+            try:
+                await client.send_text(payload)
+            except Exception:
+                pass
+    except Exception as e:
+        logger.error(f"Error broadcasting bill for customer {customer_id}: {e}")
+
 @app.get("/api/health")
 async def health_check():
     groq_configured = bool(os.environ.get("GROQ_API_KEY") and not os.environ.get("GROQ_API_KEY", "").startswith("your_"))
@@ -133,6 +149,7 @@ async def create_customer(req: CreateCustomerRequest):
         )
         cust["total_balance"] = new_bal
     await broadcast_ledger_state()
+    await broadcast_customer_bill(cust["id"])
     return {"customer": cust, "is_new": is_new}
 
 @app.delete("/api/customers/{customer_id}")
@@ -158,7 +175,7 @@ async def update_customer_endpoint(customer_id: int, req: UpdateCustomerRequest)
     await broadcast_ledger_state()
     return {"status": "UPDATED", "customer_id": customer_id, "name": req.name}
 
-async def process_action_item(action: ActionItem) -> tuple[str, str, bool]:
+async def process_action_item(action: ActionItem) -> tuple[str, str, bool, Optional[int]]:
     """
     Executes a single parsed action against the ledger state machine.
     Handles:
@@ -196,7 +213,7 @@ async def process_action_item(action: ActionItem) -> tuple[str, str, bool]:
                 tx_type=tx_type,
                 notes=note
             )
-            return f"{matched['name']} ka {int(amt)} rupaye darj ho gaya. Ab total {int(new_bal)} rupaye baaki hai.", "RECORDED", False
+            return f"{matched['name']} ka {int(amt)} rupaye darj ho gaya. Ab total {int(new_bal)} rupaye baaki hai.", "RECORDED", False, matched["id"]
 
     # 1. Spoken correction ("nahi, 430" or "eggs were worth 8 each" or "10 ande kharide the na ki 1")
     if act == "CORRECTION":
@@ -209,9 +226,9 @@ async def process_action_item(action: ActionItem) -> tuple[str, str, bool]:
                 items=action.items
             )
             if updated_info:
-                return msg, "CORRECTED", False
-            return msg or "Koi purana record nahi mila jise sudhara ja sake.", "ERROR", False
-        return "Naya amount samajh nahi aaya.", "ERROR", False
+                return msg, "CORRECTED", False, updated_info.get("customer_id")
+            return msg or "Koi purana record nahi mila jise sudhara ja sake.", "ERROR", False, None
+        return "Naya amount samajh nahi aaya.", "ERROR", False, None
 
     # 1a. Reassign / Transfer entry between customers ("Krishna ne nahi khareeda tha, Krishna Nema ne khareeda tha 50 ka tel")
     if act == "REASSIGN_ENTRY":
@@ -221,7 +238,7 @@ async def process_action_item(action: ActionItem) -> tuple[str, str, bool]:
         note = action.notes or "Reassigned Entry"
 
         if not target_name:
-            return "Kripya sahi grahak ka naam batayein.", "NEED_CUSTOMER", False
+            return "Kripya sahi grahak ka naam batayein.", "NEED_CUSTOMER", False, None
 
         # 1. Ensure target customer exists
         target_cust, is_new_target = await ledger_manager.get_or_create_customer(target_name, action.phone)
@@ -254,21 +271,21 @@ async def process_action_item(action: ActionItem) -> tuple[str, str, bool]:
         target_bal = updated_cands[0]["total_balance"] if updated_cands else 0.0
 
         spoken = f"Theek hai, {from_cust_msg}{target_cust['name']} ke khate me {int(amt)} rupaye darj kar diye hain. Ab {target_cust['name']} ka kul baaki {int(target_bal)} rupaye hai."
-        return spoken, "REASSIGNED", is_new_target
+        return spoken, "REASSIGNED", is_new_target, target_cust["id"]
 
     # 1b. Create Customer directly via voice command ("naya grahak banao Mukesh Patel")
     if act == "CREATE_CUSTOMER":
         cust_name = action.customer or "Naya Grahak"
         cust, is_new = await ledger_manager.get_or_create_customer(cust_name, action.phone)
         spoken = f"Naya grahak '{cust['name']}' ka khata safalta-purvak bana diya gaya hai."
-        return spoken, "CUSTOMER_CREATED", True
+        return spoken, "CUSTOMER_CREATED", True, cust["id"]
 
     # 1c. Update Customer name via voice command ("Ramesh ka naam badal kar Ramesh Gupta kar do")
     if act == "UPDATE_CUSTOMER":
         old_name = action.customer or ""
         new_name = action.notes or ""
         cust, msg = await ledger_manager.update_customer_name(old_name, new_name)
-        return msg, "CUSTOMER_UPDATED", False
+        return msg, "CUSTOMER_UPDATED", False, cust["id"] if cust else None
 
     # 2. Query balance
     if act == "QUERY_BALANCE":
@@ -276,13 +293,14 @@ async def process_action_item(action: ActionItem) -> tuple[str, str, bool]:
             customer_name=action.customer,
             target=action.target or "total"
         )
-        return spoken, "QUERIED", False
+        candidates = await ledger_manager.find_customers_by_name(action.customer) if action.customer else []
+        return spoken, "QUERIED", False, candidates[0]["id"] if candidates else None
 
     # 3. Add Credit or Record Payment
     if act in ["ADD_CREDIT", "RECORD_PAYMENT"]:
         cust_name = action.customer
         if not cust_name or cust_name.lower() in ["unknown", "kisi", "none"]:
-            return "Kripya grahak ka naam batayein.", "NEED_CUSTOMER", False
+            return "Kripya grahak ka naam batayein.", "NEED_CUSTOMER", False, None
 
         # Look up matching customers
         candidates = await ledger_manager.find_customers_by_name(cust_name)
@@ -300,7 +318,7 @@ async def process_action_item(action: ActionItem) -> tuple[str, str, bool]:
                 "notes": action.notes or "Udhaar samaan",
                 "candidates": candidates
             })
-            return spoken_question, "DISAMBIGUATION_REQUIRED", False
+            return spoken_question, "DISAMBIGUATION_REQUIRED", False, None
 
         if len(candidates) == 1:
             customer = candidates[0]
@@ -358,9 +376,9 @@ async def process_action_item(action: ActionItem) -> tuple[str, str, bool]:
             else:
                 spoken = f"{customer['name']} par koi purana udhaar baaki nahi tha. Khata pehle se chukta hai."
 
-        return spoken, "RECORDED", is_new_cust
+        return spoken, "RECORDED", is_new_cust, customer["id"]
 
-    return "Aapka aadesh samajh nahi aaya. Kripya dobara bole.", "UNKNOWN", False
+    return "Aapka aadesh samajh nahi aaya. Kripya dobara bole.", "UNKNOWN", False, None
 
 @app.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
@@ -444,6 +462,7 @@ async def websocket_endpoint(websocket: WebSocket):
         }))
 
         responses_text = []
+        last_customer_id: Optional[int] = None
         for action in intent_res.actions:
             # If user asks to GENERATE_BILL for a customer, fetch all past credit transactions,
             # itemize them, and send a structured bill directly to the UI!
@@ -452,6 +471,7 @@ async def websocket_endpoint(websocket: WebSocket):
                 candidates = await ledger_manager.find_customers_by_name(cust_name)
                 if candidates:
                     target_cust = candidates[0]
+                    last_customer_id = target_cust["id"]
                     txs = await ledger_manager.get_customer_transactions(target_cust["id"], limit=100)
                     
                     extracted_dict_items = extract_line_items_from_history(txs, target_cust["total_balance"])
@@ -492,10 +512,15 @@ async def websocket_endpoint(websocket: WebSocket):
                     responses_text.append(spoken_reply)
                     continue
 
-            spoken_part, status, is_new = await process_action_item(action)
+            spoken_part, status, is_new, cid = await process_action_item(action)
             responses_text.append(spoken_part)
+            if cid:
+                last_customer_id = cid
 
         await broadcast_ledger_state()
+
+        if last_customer_id:
+            await broadcast_customer_bill(last_customer_id)
 
         final_spoken = " ".join(responses_text) if responses_text else (intent_res.spoken_reply or "Aapka aadesh darj ho gaya.")
         asyncio.create_task(stream_audio_response(final_spoken, start_time))
