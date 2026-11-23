@@ -405,6 +405,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
     active_stt_client: Optional[GnaniSTTClient] = None
     session_had_client_transcript = False
+    is_recording_active = False
     last_processed_text = ""
     last_processed_time = 0.0
     stt_debounce_task: Optional[asyncio.Task] = None
@@ -538,12 +539,15 @@ async def websocket_endpoint(websocket: WebSocket):
                     stt_debounce_task.cancel()
                 logger.info("Audio recording session started by client.")
 
+                is_recording_active = True
                 active_stt_client = GnaniSTTClient()
 
                 async def delayed_process(txt: str):
                     try:
-                        await asyncio.sleep(2.2)
-                        await process_incoming_transcript(txt, source="gnani_debounced")
+                        await asyncio.sleep(2.5)
+                        # Only auto-process mid-speech if recording is still active
+                        if is_recording_active:
+                            await process_incoming_transcript(txt, source="gnani_debounced")
                     except asyncio.CancelledError:
                         pass
 
@@ -573,14 +577,17 @@ async def websocket_endpoint(websocket: WebSocket):
 
             elif msg_type == "STOP_RECORDING":
                 logger.info("Audio recording session stopped by client.")
+                is_recording_active = False
                 if stt_debounce_task and not stt_debounce_task.done():
                     stt_debounce_task.cancel()
+                    stt_debounce_task = None
                 if active_stt_client:
                     if not session_had_client_transcript:
                         transcribed = await active_stt_client.finish_and_transcribe()
                         if transcribed:
                             await process_incoming_transcript(transcribed, source=active_stt_client.last_stt_source)
                     elif buffered_streaming_text:
+                        # Process the final complete spoken transcript once
                         await process_incoming_transcript(buffered_streaming_text, source="gnani_on_stop")
                     await active_stt_client.disconnect()
                     active_stt_client = None

@@ -9,8 +9,11 @@ def extract_line_items_from_history(transactions: List[Dict[str, Any]], total_ba
     """
     items: List[Dict[str, Any]] = []
     
-    # Filter credit transactions
-    credit_txs = [t for t in transactions if t.get("type") == "CREDIT" and t.get("amount", 0) > 0]
+    # Sort transactions chronologically (oldest first: lowest id) so latest transactions come last
+    credit_txs = sorted(
+        [t for t in transactions if t.get("type") == "CREDIT" and t.get("amount", 0) > 0],
+        key=lambda t: t.get("id", 0)
+    )
     
     # Stop words that should NEVER be treated as items (e.g. 'se', 'sudhara', 'gaya', etc.)
     INVALID_NAMES = {"se", "gaya", "sudhara", "hisaab", "chukta", "total", "rate", "correction", "note", "item"}
