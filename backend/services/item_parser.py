@@ -24,8 +24,8 @@ def extract_line_items_from_history(transactions: List[Dict[str, Any]], total_ba
         
         # 1. Clean the note: strip [Sudhara gaya: ...] or any bracketed annotations
         clean_note = re.sub(r'\[.*?\]', '', raw_note).strip()
-        # Strip leading "Rate correction:" or "Correction:" prefixes
-        clean_note = re.sub(r'^(?:Rate\s+correction:\s*|Correction:\s*)', '', clean_note, flags=re.I).strip()
+        # Clean trailing verbs from note (kharida, kharide, kharidi, liya, liye, udhaar)
+        clean_note = re.sub(r'\b(kharida|kharide|kharidi|liya|liye|udhaar|likh|likho)\b', '', clean_note, flags=re.I).strip()
         
         tx_items = []
 
@@ -41,7 +41,7 @@ def extract_line_items_from_history(transactions: List[Dict[str, Any]], total_ba
             )
             if mA:
                 qty = float(mA.group(1))
-                name = mA.group(2).replace("aur", "").replace("and", "").strip()
+                name = re.sub(r'\b(aur|and|ne)\b', '', mA.group(2), flags=re.I).strip()
                 rate_or_total = float(mA.group(3))
                 mode = (mA.group(4) or "each").lower()
                 if mode == "each":
@@ -88,7 +88,7 @@ def extract_line_items_from_history(transactions: List[Dict[str, Any]], total_ba
             )
             if mC:
                 qty = float(mC.group(1))
-                name = mC.group(2).replace("aur", "").replace("and", "").replace("ne", "").strip()
+                name = re.sub(r'\b(aur|and|ne)\b', '', mC.group(2), flags=re.I).strip()
                 rate_or_total = float(mC.group(3))
                 is_each = bool(mC.group(4))
                 if is_each:

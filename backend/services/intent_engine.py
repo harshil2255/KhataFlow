@@ -29,8 +29,17 @@ Supported actions:
    Examples:
    - "Ramesh ka naam badal kar Ramesh Gupta kar do" -> action: "UPDATE_CUSTOMER", customer: "Ramesh", notes: "Ramesh Gupta"
    - "Mukesh ka phone number update karo"
-4. "ADD_CREDIT": Customer took goods on credit/udhaar. If the customer does not exist, they will be auto-created and billed!
+4. "ADD_CREDIT": Customer took goods on credit/udhaar, or user is recording items bought.
+   IMPORTANT: Any statement of goods/groceries bought (e.g. "Suresh ne 3 pataka 50 rupaye aur 12 ande kharide", "10 ande 7 rupaye", "2 packet doodh") is ALWAYS "ADD_CREDIT", NEVER "RECORD_PAYMENT"!
+   Only use "RECORD_PAYMENT" when payment/cash/settlement keywords are explicitly spoken (e.g. "jama kiye", "diye", "cash diya", "poora hisaab chukta", "paise diye").
    Examples:
+   - "Suresh ne 3 pataka worth 50 aur 12 ande 6.5 rupaye kharide":
+     action: "ADD_CREDIT", customer: "Suresh", amount: 128.0,
+     items: [
+       {"name": "Pataka", "qty": 3.0, "unit": "pcs", "unit_price": 16.67, "total": 50.0},
+       {"name": "Ande", "qty": 12.0, "unit": "pcs", "unit_price": 6.5, "total": 78.0}
+     ],
+     notes: "3 Pataka (16.67rs each), 12 Ande (6.5rs each)"
    - "Ayush bought 10 eggs worth 7.5 each" -> action: "ADD_CREDIT", customer: "Ayush", amount: 75.0, notes: "10 Ande (7.5rs each)", items: [{"name": "Ande", "qty": 10.0, "unit": "pcs", "unit_price": 7.5, "total": 75.0}]
    - "पूजा ने 200 रुपये का मैदा खरीदा, 50 रुपये की Maggi खरीदी। उधार में डाल दो।"
    - "Ramesh ka 340 udhaar"
@@ -38,8 +47,8 @@ Supported actions:
    - "Krishna Nema ne 50 rupaye ka tel khareeda"
    CRITICAL NOTE FORMAT FOR ITEMS: Whenever quantity & unit price are mentioned (e.g. 10 eggs at 7.5 each), ALWAYS format `notes` as `<qty> <Item> (<unit_price>rs each)` (e.g. "10 Ande (7.5rs each)") so the ledger can cleanly reconstruct exact bill rows!
 
-5. "RECORD_PAYMENT": Customer paid money / jama kiya.
-   Examples: "kal 200 diya tha", "रमेश ने 350 रुपये नकद जमा कर दिए"
+5. "RECORD_PAYMENT": Customer paid money / jama kiya / cleared debt. ONLY use when user explicitly says paid/jama/cash/settled.
+   Examples: "kal 200 diya tha", "रमेश ने 350 रुपये नकद जमा कर दिए", "Suresh ne 100 rupaye diye"
    - Special Rule for "pura udhaar chuka diya / poora hisaab clear kar diya / pura chukta":
      If the user says "pura udhaar chuka diya", "sab chukta kar diya", "poora hisaab chuka diya", or says to clear all debt WITHOUT mentioning an exact amount:
      Set action: "RECORD_PAYMENT", customer: "<Customer Name>", notes: "Pura udhaar chuka diya (Full Settle)", amount: null, target: "clear_all".
@@ -349,20 +358,26 @@ class IntentEngine:
                 confidence=0.9
             )
 
-        has_payment = any(w in lower for w in ["jama", "diya", "chukta", "pay", "payment"])
+        # Check for explicit payment keywords with word boundaries so 'rupaye' is never confused with 'pay'!
+        has_payment = bool(re.search(r'\b(jama|diya|diye|chukta|payment|paid|cash)\b', lower))
 
-        # Parse amounts & items
-        items: List[LineItem] = []
-        matches = re.findall(r'(\d+)\s*(?:(?:rs|rupaye|rupees|ka|ki)\s*)?([a-zA-Z\u0900-\u097F\s]+)', text)
-        for amt_str, name_str in matches:
-            price = float(amt_str)
-            clean_name = re.sub(r'\b(kharidi|kharida|udhaar|likh|aur|and|mein|me|dalo|do|to|total)\b', '', name_str, flags=re.I).strip()
-            if clean_name:
-                items.append(LineItem(name=clean_name.capitalize(), qty=1.0, unit="pkt", unit_price=price, total=price))
+        # Parse items using robust item parser
+        from backend.services.item_parser import extract_line_items_from_history
+        parsed_dicts = extract_line_items_from_history([{"type": "CREDIT", "amount": 0.0, "notes": text}], 0.0)
+        items: List[LineItem] = [
+            LineItem(
+                name=it["name"],
+                qty=it["qty"],
+                unit=it.get("unit", "pkt"),
+                unit_price=it["unit_price"],
+                total=it["total"]
+            )
+            for it in parsed_dicts
+        ]
 
         total_amt = sum(it.total for it in items) if items else None
         if total_amt is None:
-            num_match = re.search(r'\b(\d+)\b', text)
+            num_match = re.search(r'\b(\d+(?:\.\d+)?)\b', text)
             if num_match:
                 total_amt = float(num_match.group(1))
 
