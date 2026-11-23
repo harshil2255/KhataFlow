@@ -208,7 +208,8 @@ function KhataFlowDashboard() {
             setIsFinalTranscript(!!msg.is_final);
           } else if (msg.type === "INTENT_EXTRACTED") {
             setExtractedPayload(msg.payload);
-            setSelectedCustomer(null);
+            // Do NOT clear selectedCustomer here — BILL_UPDATED will set the correct customer
+            // setSelectedCustomer(null) was removed to prevent receipt flicker
           } else if (msg.type === "BILL_UPDATED") {
             const bill = msg.data;
             if (bill && bill.customer_id) {

@@ -122,52 +122,43 @@ export const LiveVisualizer: React.FC<LiveVisualizerProps> = ({
     }
   }, [liveBillData, selectedCustomer]);
 
-  // Fetch bill for selected customer
+  // Fetch bill for selected customer — ALWAYS fetch fresh from API on customer selection
   useEffect(() => {
-    if (selectedCustomer) {
-      // If we already have liveBillData for this customer, use it immediately
-      if (liveBillData && liveBillData.customer_id === selectedCustomer.id) {
-        setCustomerBill({
-          customer: liveBillData.customer,
-          amount: liveBillData.amount,
-          items: liveBillData.items || [],
-        });
-        return;
-      }
-
-      setLoadingBill(true);
-      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://khataflow-lvvd.onrender.com";
-      fetch(`${apiUrl}/api/customers/${selectedCustomer.id}/bill`)
-        .then((res) => res.json())
-        .then((data) => {
-          setCustomerBill({
-            customer: data.customer || selectedCustomer.name,
-            amount: data.amount ?? selectedCustomer.total_balance,
-            items: data.items || [],
-          });
-        })
-        .catch(() => {
-          // Fallback to local parsing from transaction history
-          const parsed = parseItemsFromTransactions(transactions, selectedCustomer.id);
-          setCustomerBill({
-            customer: selectedCustomer.name,
-            amount: selectedCustomer.total_balance,
-            items: parsed.length > 0 ? parsed : selectedCustomer.total_balance > 0 ? [
-              {
-                name: "Pichhla Udhaar",
-                qty: 1,
-                unit: "hisaab",
-                unit_price: selectedCustomer.total_balance,
-                total: selectedCustomer.total_balance,
-              },
-            ] : [],
-          });
-        })
-        .finally(() => setLoadingBill(false));
-    } else {
+    if (!selectedCustomer) {
       setCustomerBill(null);
+      return;
     }
-  }, [selectedCustomer, liveBillData, transactions]);
+
+    setLoadingBill(true);
+    const apiUrl = process.env.NEXT_PUBLIC_API_URL || "https://khataflow-lvvd.onrender.com";
+    fetch(`${apiUrl}/api/customers/${selectedCustomer.id}/bill`)
+      .then((res) => res.json())
+      .then((data) => {
+        setCustomerBill({
+          customer: data.customer || selectedCustomer.name,
+          amount: data.amount ?? selectedCustomer.total_balance,
+          items: Array.isArray(data.items) && data.items.length > 0 ? data.items : [],
+        });
+      })
+      .catch(() => {
+        // Fallback to local parsing from transaction history
+        const parsed = parseItemsFromTransactions(transactions, selectedCustomer.id);
+        setCustomerBill({
+          customer: selectedCustomer.name,
+          amount: selectedCustomer.total_balance,
+          items: parsed.length > 0 ? parsed : selectedCustomer.total_balance > 0 ? [
+            {
+              name: "Pichhla Udhaar",
+              qty: 1,
+              unit: "hisaab",
+              unit_price: selectedCustomer.total_balance,
+              total: selectedCustomer.total_balance,
+            },
+          ] : [],
+        });
+      })
+      .finally(() => setLoadingBill(false));
+  }, [selectedCustomer]);
 
   const payload = useMemo(() => {
     if (!extractedPayload || typeof extractedPayload !== "object") return null;
